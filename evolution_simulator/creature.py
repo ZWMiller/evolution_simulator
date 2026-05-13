@@ -17,8 +17,18 @@ GENE_DIMS = 500
 #   1. Subclasses representing distinct species can override them.
 #   2. They are inspectable / evolvable at runtime if needed.
 #
-# Trait value computation:  sigmoid(mean(genes[indices]))  → [0, 1]
-# which is then scaled to a biologically meaningful range in each property.
+# Trait value computation — Ordered Weighted Averaging (OWA):
+#   1. Extract genes at trait_indices.
+#   2. Sort descending; assign exponentially decaying weights
+#      w_i = alpha * (1 - alpha)^i, then normalise so they sum to 1.
+#   3. raw = dot(weights, sorted_genes)
+#   4. trait_value = sigmoid(raw)  → [0, 1]
+#
+# OWA gives higher-valued loci more phenotypic weight.  A beneficial mutation
+# that pushes a locus to the top of the ranking gains weight proportional to
+# OWA_ALPHA (default 0.6), making that mutation immediately visible to
+# selection — unlike a plain mean where each locus contributes only 1/N of
+# the signal regardless of its value.
 # ---------------------------------------------------------------------------
 
 DEFAULT_TRAIT_GENE_INDICES: dict[str, list[int]] = {
@@ -231,10 +241,17 @@ class Creature:
     TRAIT_GENE_INDICES to represent species with different genetic
     architectures.
 
-    Trait value formula
-    -------------------
-    raw_signal = mean(genes[trait_indices])
-    trait_value = sigmoid(raw_signal)           → [0, 1]
+    Trait value formula — Ordered Weighted Averaging (OWA)
+    -------------------------------------------------------
+    1. vals       = genes[trait_indices]
+    2. sorted     = sort(vals, descending)
+    3. w_i        = OWA_ALPHA * (1 - OWA_ALPHA)^i  (then normalised to sum = 1)
+    4. raw_signal = dot(weights, sorted)
+    5. trait_value = sigmoid(raw_signal)            → [0, 1]
+
+    Higher-valued loci receive exponentially more weight, so a beneficial
+    mutation that pushes a locus to the top of the ranking gains immediate
+    phenotypic influence rather than being diluted 1/N by a plain mean.
 
     Properties then scale [0, 1] into biologically meaningful ranges.
 
@@ -251,6 +268,12 @@ class Creature:
 
     # Class-level attribute so species subclasses can override the mapping
     TRAIT_GENE_INDICES: dict[str, list[int]] = DEFAULT_TRAIT_GENE_INDICES
+
+    # OWA weight-decay rate.  The highest-ranked gene locus receives weight
+    # alpha, the next alpha*(1-alpha), and so on (normalised to sum to 1).
+    # Higher values → faster decay → top locus dominates more strongly.
+    # Range (0, 1); species subclasses can override to tune selectivity.
+    OWA_ALPHA: float = 0.6
 
     # Minimum cosine-similarity score (on [-1, 1] scale) required for mating.
     # The selectivity trait can raise this up toward 1.0.
@@ -308,16 +331,23 @@ class Creature:
 
     def _compute_trait(self, name: str) -> float:
         """
-        Compute the normalized [0, 1] value for a named trait.
+        Compute the normalized [0, 1] value for a named trait via OWA.
 
-        Averages the raw gene values at all contributing indices, then passes
-        through a sigmoid so the output is always in [0, 1].
+        Gene values at contributing loci are sorted descending and combined
+        with exponentially decaying weights (OWA_ALPHA controls the decay),
+        then passed through a sigmoid.  Higher-valued loci receive more weight,
+        so beneficial mutations are immediately visible to selection.
 
-        Subclasses or external callers can inspect or modify
-        self.TRAIT_GENE_INDICES[name] to change which genes contribute.
+        Subclasses can tune OWA_ALPHA or override TRAIT_GENE_INDICES[name].
         """
         indices = self.TRAIT_GENE_INDICES[name]
-        raw = float(np.mean(self.genes[indices]))
+        vals = self.genes[indices]
+        n = len(vals)
+        alpha = self.__class__.OWA_ALPHA
+        i = np.arange(n)
+        weights = alpha * (1 - alpha) ** i
+        weights /= weights.sum()
+        raw = float(np.dot(weights, np.sort(vals)[::-1]))
         return self._sigmoid(raw)
 
     def trait_indices(self, name: str) -> list[int]:

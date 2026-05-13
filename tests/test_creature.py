@@ -69,10 +69,15 @@ class TestTraitComputation:
             assert 0.0 <= val <= 1.0, f"Trait '{name}' out of range: {val}"
 
     def test_trait_uses_correct_indices(self, creature):
-        """_compute_trait must only read from the declared index set."""
+        """_compute_trait must only read from the declared index set via OWA."""
         name = "fecundity"
         indices = creature.TRAIT_GENE_INDICES[name]
-        expected_raw = float(np.mean(creature.genes[indices]))
+        vals = creature.genes[indices]
+        n = len(vals)
+        alpha = Creature.OWA_ALPHA
+        weights = alpha * (1 - alpha) ** np.arange(n)
+        weights /= weights.sum()
+        expected_raw = float(np.dot(weights, np.sort(vals)[::-1]))
         expected = 1.0 / (1.0 + np.exp(-expected_raw))
         assert creature._compute_trait(name) == pytest.approx(expected)
 

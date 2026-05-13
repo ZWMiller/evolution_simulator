@@ -44,8 +44,24 @@ Logs are written to `simulation_logs/YYYY-MM-DD_HH-MM-SS/` and are ignored by gi
 
 ### Genes and Traits
 
-Each creature carries a **500-dimensional float gene vector**. Traits are **polygenic** — each
-is computed as `sigmoid(mean(genes[indices]))` over a distributed, overlapping set of loci.
+Each creature carries a **500-dimensional float gene vector**. Traits are **polygenic** —
+each is computed via **Ordered Weighted Averaging (OWA)** over a distributed, overlapping
+set of loci:
+
+```
+1. vals    = genes[trait_indices]
+2. sorted  = sort(vals, descending)
+3. w_i     = α · (1 − α)^i  (normalised to sum = 1,  default α = 0.6)
+4. raw     = dot(weights, sorted)
+5. trait   = sigmoid(raw)   → [0, 1]
+```
+
+The highest-valued locus receives weight α ≈ 0.6, the next α(1−α) ≈ 0.24, and so on.
+A beneficial mutation that pushes a locus to the top of the ranking gains immediate
+phenotypic weight rather than being diluted 1/N by a plain mean — making individual
+mutations visible to selection. `OWA_ALPHA` is a class attribute that species subclasses
+can override to tune how strongly the dominant locus controls expression.
+
 Many loci contribute to multiple traits (**pleiotropy**), creating correlated selection pressure.
 
 **Inheritance** is Mendelian: each offspring locus is drawn 50/50 from either parent. Mutation
