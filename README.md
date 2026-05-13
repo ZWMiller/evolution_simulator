@@ -245,7 +245,12 @@ for _ in range(100):
 **Population seeding**: each habitat gets `initial_species_per_habitat` distinct founding
 genomes. `creatures_per_species` individuals are placed near each genome (within
 `initial_genome_noise`), split 50/50 male/female. Founding creatures start at
-`age = days_to_sexual_viability + 1` so mating begins immediately.
+`age = days_to_sexual_viability + 1` so mating begins immediately. Both parameters
+can be overridden per habitat in the config, so different habitats can start with
+different populations.
+
+**Early termination**: `run()` halts before the configured number of days if the global
+population reaches zero. `summary.json` records `"extinct": true` in that case.
 
 ---
 
@@ -282,9 +287,13 @@ name = "Northern Desert"  # optional human-readable label
 id   = "plains_1"
 type = "Plains"
 seed = 2
-# initial_species_per_habitat = 5   # per-habitat overrides
-# creatures_per_species = 8
+# initial_species_per_habitat = 1   # per-habitat overrides
+# creatures_per_species = 50        # → 25 female + 25 male, one founding genome
 ```
+
+**Single-species isolation experiment**: set `initial_species_per_habitat = 1` and a large
+`creatures_per_species` on a habitat with no connections to watch divergence from a single
+ancestor. The simulation halts automatically if the population collapses to zero.
 
 ---
 
@@ -298,7 +307,7 @@ simulation_logs/
     ├── day_00001.json
     ├── day_00002.json
     ├── ...
-    └── summary.json        ← final state + full speciation history
+    └── summary.json        ← final state, speciation history, extinction flag
 ```
 
 Each `day_NNNNN.json` captures every event for replay in a visualizer:

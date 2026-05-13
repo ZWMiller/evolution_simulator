@@ -75,8 +75,12 @@ threshold = 0.95
 #   name – human-readable label (optional, defaults to type name)
 #
 # Per-habitat overrides (optional — omit to use the global values above):
-#   initial_species_per_habitat
-#   creatures_per_species
+#   initial_species_per_habitat  – founding genomes for this habitat only
+#   creatures_per_species        – creatures per founding genome for this habitat only
+#
+# Example — single-species isolation experiment:
+#   initial_species_per_habitat = 1
+#   creatures_per_species = 50   # 25 male + 25 female, all near one founding genome
 
 [habitats]
 
@@ -111,5 +115,5 @@ id   = "wetlands_1"
 type = "Wetlands"
 seed = 4
 name = "Southern Wetlands"
-# initial_species_per_habitat = 5  # uncomment to override the global default
-# creatures_per_species = 8
+# initial_species_per_habitat = 1  # uncomment to override the global default
+# creatures_per_species = 50       # total creatures = initial_species × creatures_per_species

@@ -180,18 +180,28 @@ class SimulationRunner:
     # ------------------------------------------------------------------
 
     def run(self) -> None:
-        """Simulate all days specified in config, writing a log file per day."""
+        """
+        Simulate all days specified in config, writing a log file per day.
+
+        Halts early if the global population reaches zero (extinction), in
+        which case summary.json records ``"extinct": true``.
+        """
         days = self.config["simulation"]["days"]
         logger.info("Starting simulation: %d days", days)
+        extinct = False
         for d in range(days):
             self.step()
+            pop = sum(h.population_size for h in self.habitats.values())
+            if pop == 0:
+                logger.info("Global extinction on day %d — halting early.", self.day)
+                extinct = True
+                break
             if (d + 1) % 50 == 0 or d == 0:
-                pop = sum(h.population_size for h in self.habitats.values())
                 logger.info(
                     "Day %d: population=%d, species=%d",
                     self.day, pop, self.species_registry.species_count,
                 )
-        self._write_summary()
+        self._write_summary(extinct=extinct)
         logger.info("Simulation complete. Logs in: %s", self.log_dir)
 
     def step(self) -> dict:
@@ -353,10 +363,11 @@ class SimulationRunner:
         with open(self.log_dir / "metadata.json", "w") as fh:
             json.dump(metadata, fh, indent=2)
 
-    def _write_summary(self) -> None:
+    def _write_summary(self, extinct: bool = False) -> None:
         summary = {
             "simulation_end": datetime.now().isoformat(),
             "days_simulated": self.day,
+            "extinct": extinct,
             "final_population": sum(h.population_size for h in self.habitats.values()),
             "total_species_ever": self.species_registry.species_count,
             "total_speciation_events": len(self.species_registry.speciation_events),

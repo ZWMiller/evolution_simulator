@@ -71,11 +71,15 @@ Checking all progenitors (not just the parent's species) prevents two failure mo
 
 ### Simulation Runner (`simulation.py`)
 
-`SimulationRunner` owns habitat construction, population seeding, and JSON log output. Founding creatures start at `age = days_to_sexual_viability + 1` so mating begins on day 1. Each day writes a `day_NNNNN.json` with full event data; a `summary.json` is written at the end.
+`SimulationRunner` owns habitat construction, population seeding, and JSON log output. Founding creatures start at `age = days_to_sexual_viability + 1` so mating begins on day 1. Each day writes a `day_NNNNN.json` with full event data; a `summary.json` is written at the end (including an `"extinct": bool` field).
+
+`run()` checks global population after each step and halts early on extinction. `runner.py` does the same in its own step loop and also calls `_write_summary()` directly — note that `runner.py` drives its own loop and does NOT call `run()`.
 
 ## Configuration
 
 The default config lives at `evolution_simulator/config/simulation.toml`. Copy and edit it for custom runs — it controls habitat topology, connection graph, creature counts, species threshold, and per-habitat type/seed overrides. Species name vocabulary is in `evolution_simulator/config/species_names.toml` (100 adjectives × 100 nouns).
+
+Each `[[habitats.instances]]` block can override `initial_species_per_habitat` and `creatures_per_species` locally. For a single-species isolation experiment, set `initial_species_per_habitat = 1` and a larger `creatures_per_species` on a habitat with no connections.
 
 ## Key Invariants to Preserve
 

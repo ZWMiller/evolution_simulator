@@ -87,6 +87,7 @@ Examples:
 
     total_births = 0
     total_deaths = 0
+    extinct = False
 
     for _ in range(days):
         t0 = time.perf_counter()
@@ -109,9 +110,17 @@ Examples:
                 f"{elapsed*1000:>7.1f}ms"
             )
 
+        if day_log["global_population"] == 0:
+            extinct = True
+            print(f"\n  !! Global extinction on day {runner.day} — halting early.")
+            break
+
+    runner._write_summary(extinct=extinct)
+
     print()
     print("  ── Simulation complete ──────────────────────────────")
     print(f"  Days simulated   : {runner.day}")
+    print(f"  Outcome          : {'EXTINCTION' if extinct else 'completed'}")
     print(f"  Final population : {sum(h.population_size for h in runner.habitats.values())}")
     print(f"  Total species    : {runner.species_registry.species_count}")
     print(f"  Speciation events: {len(runner.species_registry.speciation_events)}")
