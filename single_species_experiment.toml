@@ -1,0 +1,105 @@
+# single_species_experiment.toml
+#
+# One species (100 creatures) starts in a central forest and can spread
+# across five environmentally distinct habitats connected in a ring:
+#
+#   [Origin Forest] ↔ [Plains] ↔ [Tundra] ↔ [Alpine]
+#         ↕                                      ↕
+#      [Desert]    ↔ ↔ ↔ [Rainforest] ↔ ↔ ↔ ↔ ↘↗
+#
+# Full ring: Origin ↔ Plains ↔ Tundra ↔ Alpine ↔ Rainforest ↔ Desert ↔ Origin
+#
+# The ring means that even if spontaneous isolation severs a link, populations
+# can still reach each other by going the long way around.  A double isolation
+# event (two links severed) can split the ring into two genuinely isolated arcs,
+# which is where allopatric speciation becomes likely.
+#
+# Habitat gradient going clockwise from origin:
+#   Forest → Plains (easy terrain, fast dispersal)
+#          → Tundra (sparse food, cold pressure)
+#          → Alpine (harshest: scarce food, 0.5× migration — hard to colonise or leave)
+#          → Rainforest (most abundant: high food + water — expect rapid population growth)
+#          → Desert (severe water stress — strong filter for water efficiency)
+#          → back to Forest
+#
+# Run for 10 000 days. Questions to investigate:
+#   - Does the origin population colonise all six habitats?
+#   - Do geographically isolated populations speciate?
+#   - Which habitats prove too harsh to sustain a colony?
+#   - Does any branch collapse entirely (check "extinct" in summary.json)?
+
+[simulation]
+days       = 10000
+seed       = 7
+output_dir = "simulation_logs"
+
+# All habitats default to empty; only the origin habitat is seeded below.
+initial_species_per_habitat = 0
+creatures_per_species       = 0
+initial_genome_noise        = 0.05
+isolation_probability       = 0.001
+
+[species]
+threshold = 0.95
+
+
+[habitats]
+
+# Ring topology — six bidirectional links forming one loop.
+connections = [
+    ["origin",     "plains"],
+    ["plains",     "tundra"],
+    ["tundra",     "alpine"],
+    ["alpine",     "rainforest"],
+    ["rainforest", "desert"],
+    ["desert",     "origin"],
+]
+
+# ── Origin ─────────────────────────────────────────────────────────────────
+[[habitats.instances]]
+id   = "origin"
+type = "Forest"
+seed = 1
+name = "Origin Forest"
+initial_species_per_habitat = 1
+creatures_per_species       = 100   # 50 female + 50 male, single founding genome
+
+# ── Cold branch (clockwise) ────────────────────────────────────────────────
+[[habitats.instances]]
+id   = "plains"
+type = "Plains"
+seed = 2
+name = "Eastern Plains"
+# 1.5× migration multiplier — easy terrain accelerates dispersal into the ring
+
+[[habitats.instances]]
+id   = "tundra"
+type = "Tundra"
+seed = 3
+name = "Northern Tundra"
+# Sparse food (0.20 gain, 0.20 cost) — filters for hardy generalists
+
+[[habitats.instances]]
+id   = "alpine"
+type = "Alpine"
+seed = 4
+name = "Far Northern Alpine"
+# Lowest food gain (0.18), highest cost (0.25), 0.5× migration
+# Hardest to colonise and hardest to leave — strong isolation pressure
+
+# ── Arid branch (counter-clockwise) ───────────────────────────────────────
+[[habitats.instances]]
+id   = "rainforest"
+type = "Rainforest"
+seed = 5
+name = "Western Rainforest"
+# Most abundant (0.40 food, 0.45 water) — if colonised from alpine or desert,
+# expect high reproductive output and possibly rapid secondary diversification
+
+[[habitats.instances]]
+id   = "desert"
+type = "Desert"
+seed = 6
+name = "Southern Desert"
+# Severe water cost (0.35) — strong filter for water efficiency genes;
+# sitting between origin and rainforest makes it a necessary bottleneck
