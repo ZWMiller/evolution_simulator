@@ -1,0 +1,115 @@
+# Evolution Simulator — Simulation Configuration
+# ------------------------------------------------
+# Copy this file and edit it to configure your run.
+# Pass the path to SimulationRunner:
+#
+#   from pathlib import Path
+#   from evolution_simulator.simulation import SimulationRunner
+#   runner = SimulationRunner(Path("my_config.toml"))
+#   runner.setup()
+#   runner.run()
+
+[simulation]
+
+# Total number of days to simulate.
+days = 365
+
+# Optional integer seed for full reproducibility.
+# Comment out (or remove) for a random seed each run.
+seed = 42
+
+# Directory where per-run output folders will be created.
+# Each run creates a timestamped subfolder:  output_dir/YYYY-MM-DD_HH-MM-SS/
+output_dir = "simulation_logs"
+
+# --- Initial population seeding ---
+#
+# Each habitat is seeded with (initial_species_per_habitat × creatures_per_species)
+# total creatures.  Each "species" gets its own random founding genome, and all
+# creatures for that species start near that genome (within initial_genome_noise).
+#
+# Creatures within a species will be genetically similar enough to mate (cosine
+# sim well above 0.9).  Cross-species mating is unlikely because independent
+# random founding genomes will have near-zero cosine similarity in 500-dim space.
+#
+# Each species group is seeded with an equal male/female split.
+
+# Number of distinct founding genomes (proto-species) per habitat at startup.
+initial_species_per_habitat = 3
+
+# Creatures generated per founding genome.  Half will be female, half male.
+creatures_per_species = 10
+
+# Noise (std dev) applied per-locus around the founding genome.
+# Keep ≤ 0.1 to ensure intra-species compatibility (cosine sim ≥ 0.9).
+# Larger values produce more initial diversity but risk mating failure.
+initial_genome_noise = 0.05
+
+# Per-link, per-day probability that an open migration route closes
+# spontaneously (landslide, flood, lava flow, etc.).
+# Drives allopatric speciation by geographically isolating populations.
+isolation_probability = 0.001
+
+
+[species]
+
+# Full-genome cosine similarity required to remain the same species.
+#   Higher (→ 1.0) → more speciation events, finer species resolution.
+#   Lower  (→ 0.0) → fewer events, broader lumped species.
+threshold = 0.95
+
+
+# ---------------------------------------------------------------------------
+# Habitats
+# ---------------------------------------------------------------------------
+# Define the habitat instances and how they connect.
+#
+# Available types (each has a distinct characteristic center vector):
+#   Desert, Forest, Rainforest, Plains, Tundra, Ocean, CoralReef,
+#   Wetlands, Alpine, Volcanic, Cave, Arctic, River, Savanna
+#
+# Each instance:
+#   id   – unique string used in logs and connections (required)
+#   type – one of the types above (required)
+#   seed – integer controlling per-instance variation around the type center (required)
+#   name – human-readable label (optional, defaults to type name)
+#
+# Per-habitat overrides (optional — omit to use the global values above):
+#   initial_species_per_habitat
+#   creatures_per_species
+
+[habitats]
+
+# Pairs of habitat ids connected by migration routes at startup.
+# Routes may close spontaneously during the run (see isolation_probability).
+connections = [
+    ["desert_1", "plains_1"],
+    ["plains_1", "forest_1"],
+    ["forest_1", "wetlands_1"],
+]
+
+[[habitats.instances]]
+id   = "desert_1"
+type = "Desert"
+seed = 1
+name = "Northern Desert"
+
+[[habitats.instances]]
+id   = "plains_1"
+type = "Plains"
+seed = 2
+name = "Central Plains"
+
+[[habitats.instances]]
+id   = "forest_1"
+type = "Forest"
+seed = 3
+name = "Eastern Forest"
+
+[[habitats.instances]]
+id   = "wetlands_1"
+type = "Wetlands"
+seed = 4
+name = "Southern Wetlands"
+# initial_species_per_habitat = 5  # uncomment to override the global default
+# creatures_per_species = 8
