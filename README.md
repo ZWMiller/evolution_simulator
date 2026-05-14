@@ -1,16 +1,17 @@
 # EvoSim
 
 ```
-  _____________________________________________________________
- |                                                             |
- |   _____  __   __   ___    ____   ___    __  __             |
- |  | ____| \ \ / /  / _ \  / ___| |_ _| |  \/  |            |
- |  | |__    \ V /  | | | | \___ \  | |  | |\/| |            |
- |  |  __|    \_/   | |_| |  ___) |  | |  | |  | |           |
- |  |_____|         \___/  |____/  |___|  |_|  |_|           |
- |                                                             |
- |   500-dimensional · polygenic · multi-habitat              |
- |_____________________________________________________________|
+  ____________________________________________________
+ |                                                    |
+ |   _____  __   __   ___    ____   _____    __  __   |
+ |  | ____| \ \ / /  / _ \  / ___| |_  __|  |  \/  |  |
+ |  | |__    \ V /  | | | | | (__    | |    | |\/| |  |
+ |  |  __|    \_/   | | | | \___ \   | |    | |  | |  |
+ |  |  |__    ---   | |_| |  ___) | _| |_   | |  | |  |
+ |  |_____|          \___/  |____/ |_____|  |_|  |_|  |
+ |                                                    |
+ |   500-dimensional · polygenic · multi-habitat      |
+ |____________________________________________________|
 ```
 
 A genetic evolution simulation engine written in Python. Creatures carry 500-dimensional gene
@@ -69,25 +70,26 @@ is applied per-locus at that parent's heritable `mutation_rate` — so mutation 
 
 ### Resource Discovery
 
-Food and water are found via **cross-product geometry**. Each habitat and each creature has a
+Food and water are found via **dot-product geometry**. Each habitat and each creature has a
 vector in the same 500-dimensional space. The daily probability of finding a resource is:
 
 ```
-P(resource) = sin(θ)   where θ = angle between creature genes and habitat vector
+P(resource) = (cos θ + 1) / 2   where θ = angle between creature genes and habitat vector
 ```
 
-A creature **parallel** to the habitat finds nothing — `sin(0°) = 0`.
-A creature **orthogonal** to it exploits it maximally — `sin(90°) = 1`.
+A creature **aligned** with the habitat finds resources with P=1 — it is perfectly adapted.
+A creature **orthogonal** to it has P=0.5 — a random chance, the baseline for unadapted creatures.
+A creature **anti-aligned** finds nothing — P=0, actively maladapted.
 
-This drives niche differentiation: different genetic directions thrive in different environments,
-and creatures whose genes align with the habitat's orthogonal complement out-compete others.
+This drives local adaptation: creatures whose genes align with the habitat vector out-compete
+newcomers, and populations that migrate face immediate resource pressure until they adapt.
 
 ### Species Detection
 
 A `SpeciesRegistry` tracks all species by their progenitor gene vector. When a creature is
 born, its full 500-dim genome is compared against **every registered progenitor** via vectorized
 cosine similarity. It is assigned to the closest existing species if the score exceeds the
-threshold (default 0.95). If no species is close enough, a speciation event is declared.
+threshold (default 0.75). If no species is close enough, a speciation event is declared.
 
 Checking all progenitors prevents two failure modes:
 
@@ -153,7 +155,7 @@ Key methods:
 
 A geographic region with a 500-dim environment vector. Each simulated day:
 
-1. Computes food and water likelihoods for all creatures via vectorized `sin θ`.
+1. Computes food and water likelihoods for all creatures via vectorized `(cos θ + 1) / 2`.
 2. Updates energy and hydration; marks starvation / dehydration deaths.
 3. Advances each creature's day (aging, pregnancy timer).
 4. Collects litters from females that reached term.
@@ -202,7 +204,7 @@ Migration = multiple of the default 1% daily base rate.
 ```python
 from evolution_simulator.species import SpeciesRegistry
 
-registry = SpeciesRegistry(species_threshold=0.95)
+registry = SpeciesRegistry(species_threshold=0.75)
 
 # Register a founding individual
 name = registry.register_founding_species(founder.genes)
@@ -269,7 +271,7 @@ initial_genome_noise        = 0.05      # gene noise around founding genome (kee
 isolation_probability       = 0.001     # per-link per-day route severance probability
 
 [species]
-threshold = 0.95                        # cosine similarity floor for same-species membership
+threshold = 0.75                        # cosine similarity floor for same-species membership
 
 [habitats]
 connections = [

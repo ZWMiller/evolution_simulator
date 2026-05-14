@@ -280,27 +280,35 @@ class TestResourceLikelihoods:
         assert habitat.food_likelihoods([]).shape == (0,)
         assert habitat.water_likelihoods([]).shape == (0,)
 
-    def test_parallel_genes_give_low_likelihood(self, habitat):
-        """A creature whose genes are identical to the habitat vector → sin(0) = 0."""
+    def test_aligned_genes_give_max_likelihood(self, habitat):
+        """A creature aligned with the habitat vector → cos(θ)=1 → P=1."""
         indices = habitat.FOOD_GENE_INDICES
         genes = np.zeros(GENE_DIMS)
         genes[indices] = habitat.vector[indices]  # perfectly aligned
         c = Creature(genes=genes)
         probs = habitat.food_likelihoods([c])
-        assert probs[0] == pytest.approx(0.0, abs=1e-6)
+        assert probs[0] == pytest.approx(1.0, abs=1e-6)
 
-    def test_orthogonal_genes_give_high_likelihood(self, habitat):
-        """A creature with orthogonal genes to the habitat → sin(90°) = 1."""
+    def test_orthogonal_genes_give_midpoint_likelihood(self, habitat):
+        """A creature orthogonal to the habitat → cos(θ)=0 → P=0.5."""
         indices = habitat.FOOD_GENE_INDICES
         hab_sub = habitat.vector[indices]
-        # Build a vector orthogonal to hab_sub in the subspace
         rand = np.random.randn(len(indices))
         orth = rand - (np.dot(rand, hab_sub) / np.dot(hab_sub, hab_sub)) * hab_sub
         genes = np.zeros(GENE_DIMS)
         genes[indices] = orth
         c = Creature(genes=genes)
         probs = habitat.food_likelihoods([c])
-        assert probs[0] == pytest.approx(1.0, abs=1e-6)
+        assert probs[0] == pytest.approx(0.5, abs=1e-6)
+
+    def test_antialigned_genes_give_zero_likelihood(self, habitat):
+        """A creature anti-aligned with the habitat vector → cos(θ)=-1 → P=0."""
+        indices = habitat.FOOD_GENE_INDICES
+        genes = np.zeros(GENE_DIMS)
+        genes[indices] = -habitat.vector[indices]  # perfectly anti-aligned
+        c = Creature(genes=genes)
+        probs = habitat.food_likelihoods([c])
+        assert probs[0] == pytest.approx(0.0, abs=1e-6)
 
     def test_different_habitats_give_different_likelihoods(self):
         rng = np.random.default_rng(5)
@@ -371,31 +379,28 @@ class TestSimulateDayResources:
     def test_starvation_kills_creature(self, habitat):
         c = make_creature(seed=4, sex="male")
         c.energy = 0.0
-        # Force no food found: align genes perfectly with habitat → sin(θ)=0
+        # Force no food found: anti-align genes with habitat → (cos θ + 1)/2 = 0
         indices = habitat.FOOD_GENE_INDICES
-        c.genes[indices] = habitat.vector[indices]
+        c.genes[indices] = -habitat.vector[indices]
         habitat.add_creature(c)
         result = habitat.simulate_day()
-        # May die of starvation if food prob ≈ 0 and energy drains to ≤ 0
+        # May die of starvation if food prob = 0 and energy drains to ≤ 0
         # We verify the mechanism works by checking energy ≤ 0 kills the creature
         # (energy was already 0, so any FOOD_ENERGY_COST push kills it)
         assert c.creature_id in result["deaths"] or c.energy <= 0 or not c.is_alive
 
     def test_energy_increases_when_food_found(self, habitat):
-        """Force food found by making sin(θ) = 1 (orthogonal genes)."""
+        """Force food found by aligning genes with habitat → (cos θ + 1)/2 = 1."""
         indices = habitat.FOOD_GENE_INDICES
-        hab_sub = habitat.vector[indices]
-        rand = np.random.default_rng(9).standard_normal(len(indices))
-        orth = rand - (np.dot(rand, hab_sub) / np.dot(hab_sub, hab_sub)) * hab_sub
 
         c = make_creature(seed=5, sex="male")
-        c.genes[indices] = orth
+        c.genes[indices] = habitat.vector[indices]
         c.energy = 0.5
         habitat.add_creature(c)
 
         np.random.seed(0)
         habitat.simulate_day()
-        # With p≈1 food likelihood and seed 0, food should be found
+        # With p=1 food likelihood, food is always found
         # Energy should have increased (or stayed near 0.5 + gain)
         assert c.energy >= 0.5 or not c.is_alive  # creature either ate or died of age
 

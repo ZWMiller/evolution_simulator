@@ -53,10 +53,12 @@ isolation_probability = 0.001
 
 [species]
 
-# Full-genome cosine similarity required to remain the same species.
-#   Higher (→ 1.0) → more speciation events, finer species resolution.
-#   Lower  (→ 0.0) → fewer events, broader lumped species.
-threshold = 0.95
+# Full-genome cosine similarity floor: a newborn is assigned to the nearest
+# existing species if its similarity to that progenitor meets this threshold.
+# Counterintuitively, LOWER = less speciation (wider species neighbourhoods),
+# HIGHER = more speciation (newborns must be very close to a progenitor).
+# Default 0.75 produces speciation on timescales of ~25 generations.
+threshold = 0.75
 
 
 # ---------------------------------------------------------------------------

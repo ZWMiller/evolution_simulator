@@ -88,9 +88,9 @@ class TypedHabitat(Habitat):
 #
 # Each overrides only the resource constants that differ from Habitat defaults:
 #   FOOD_ENERGY_GAIN     = 0.30
-#   FOOD_ENERGY_COST     = 0.15  (× creature.metabolism)
+#   FOOD_ENERGY_COST     = 0.25  (× creature.metabolism)
 #   WATER_HYDRATION_GAIN = 0.30
-#   WATER_HYDRATION_COST = 0.20  (× (1 - creature.water_efficiency))
+#   WATER_HYDRATION_COST = 0.40  (× (1 - creature.water_efficiency))
 #   DAILY_MIGRATION_BASE = 0.01
 # ---------------------------------------------------------------------------
 
@@ -98,8 +98,8 @@ class Desert(TypedHabitat):
     """Hot, arid desert. Water is scarce; food requires specialist adaptation."""
     TYPE_SEED = 1001
     TYPE_NAME = "Desert"
-    WATER_HYDRATION_COST: float = 0.35   # dehydrates faster without adaptation
-    FOOD_ENERGY_COST: float = 0.20       # foraging requires more effort
+    WATER_HYDRATION_COST: float = 0.70   # dehydrates fast without adaptation
+    FOOD_ENERGY_COST: float = 0.35       # foraging requires more effort
     FOOD_ENERGY_GAIN: float = 0.25       # sparse food patches
 
 
@@ -130,7 +130,7 @@ class Tundra(TypedHabitat):
     TYPE_SEED = 1005
     TYPE_NAME = "Tundra"
     FOOD_ENERGY_GAIN: float = 0.20
-    FOOD_ENERGY_COST: float = 0.20       # high metabolic cost in cold
+    FOOD_ENERGY_COST: float = 0.35       # high metabolic cost in cold
     WATER_HYDRATION_GAIN: float = 0.25
 
 
@@ -166,7 +166,7 @@ class Alpine(TypedHabitat):
     TYPE_SEED = 1009
     TYPE_NAME = "Alpine"
     FOOD_ENERGY_GAIN: float = 0.18
-    FOOD_ENERGY_COST: float = 0.25       # high-altitude exertion
+    FOOD_ENERGY_COST: float = 0.40       # high-altitude exertion
     DAILY_MIGRATION_BASE: float = 0.005  # rugged terrain limits movement
 
 
@@ -175,9 +175,9 @@ class Volcanic(TypedHabitat):
     TYPE_SEED = 1010
     TYPE_NAME = "Volcanic"
     FOOD_ENERGY_GAIN: float = 0.22
-    FOOD_ENERGY_COST: float = 0.25
+    FOOD_ENERGY_COST: float = 0.40
     WATER_HYDRATION_GAIN: float = 0.20
-    WATER_HYDRATION_COST: float = 0.30
+    WATER_HYDRATION_COST: float = 0.60
     DAILY_MIGRATION_BASE: float = 0.005  # inhospitable terrain
 
 
@@ -195,7 +195,7 @@ class Arctic(TypedHabitat):
     TYPE_SEED = 1012
     TYPE_NAME = "Arctic"
     FOOD_ENERGY_GAIN: float = 0.15
-    FOOD_ENERGY_COST: float = 0.25
+    FOOD_ENERGY_COST: float = 0.40
     WATER_HYDRATION_GAIN: float = 0.35
 
 
@@ -213,7 +213,7 @@ class Savanna(TypedHabitat):
     TYPE_SEED = 1014
     TYPE_NAME = "Savanna"
     FOOD_ENERGY_GAIN: float = 0.28
-    WATER_HYDRATION_COST: float = 0.25
+    WATER_HYDRATION_COST: float = 0.50
     DAILY_MIGRATION_BASE: float = 0.012
 
 

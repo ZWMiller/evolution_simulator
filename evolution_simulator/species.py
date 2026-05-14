@@ -130,7 +130,7 @@ class SpeciesRegistry:
         lower to allow more genetic variation within a species.
     """
 
-    DEFAULT_SPECIES_THRESHOLD: float = 0.95
+    DEFAULT_SPECIES_THRESHOLD: float = 0.75
 
     def __init__(
         self,

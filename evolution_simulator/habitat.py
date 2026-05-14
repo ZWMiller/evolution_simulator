@@ -12,15 +12,18 @@ HABITAT_VECTOR_DIMS = 500
 # Default gene index subsets for habitat–creature resource interactions
 # ---------------------------------------------------------------------------
 # These indices are drawn from BOTH the habitat vector and the creature gene
-# vector when computing the cross-product-magnitude resource likelihood.
+# vector when computing the resource-finding probability.
 # Subclasses can override these to represent different habitat types (desert,
 # ocean, forest, etc.) that interact with different genetic dimensions.
 #
-# Design note: the cross-product magnitude |v_creature × v_habitat| / norms
-# = sin(θ) measures how *complementary* (orthogonal) a creature's relevant
-# genes are to the habitat vector in that subspace.  A creature perfectly
-# aligned with the habitat finds no food; a creature orthogonal to it
-# exploits it maximally.  This drives niche differentiation under selection.
+# Design note: resource probability uses (cos θ + 1) / 2, where θ is the
+# angle between a creature's gene sub-vector and the habitat sub-vector at
+# these indices.  A creature aligned with the habitat vector finds resources
+# easily (P → 1); an orthogonal creature has a baseline P = 0.5; an
+# anti-aligned creature cannot extract resources (P → 0).  This drives
+# local adaptation: populations whose genes drift toward alignment with the
+# local habitat gain a survival edge, while migrants entering a new habitat
+# face immediate resource pressure until they adapt.
 
 DEFAULT_FOOD_GENE_INDICES: list[int] = (
     list(range(37, 80))     # foraging ability, water efficiency, intelligence loci
@@ -78,10 +81,10 @@ class Habitat:
     FOOD_GENE_INDICES: list[int] = DEFAULT_FOOD_GENE_INDICES
     WATER_GENE_INDICES: list[int] = DEFAULT_WATER_GENE_INDICES
 
-    FOOD_ENERGY_GAIN: float = 0.3
-    FOOD_ENERGY_COST: float = 0.15   # multiplied by creature.metabolism
-    WATER_HYDRATION_GAIN: float = 0.3
-    WATER_HYDRATION_COST: float = 0.2  # multiplied by (1 - creature.water_efficiency)
+    FOOD_ENERGY_GAIN: float = 0.30
+    FOOD_ENERGY_COST: float = 0.25   # multiplied by creature.metabolism
+    WATER_HYDRATION_GAIN: float = 0.30
+    WATER_HYDRATION_COST: float = 0.40  # multiplied by (1 - creature.water_efficiency)
 
     # Raw migration_likelihood ∈ [0, 1] is multiplied by this so that a
     # creature with an average trait (~0.5) has only a 0.5% daily chance of
@@ -249,18 +252,21 @@ class Habitat:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _batch_sin_theta(
+    def _batch_resource_prob(
         gene_matrix: np.ndarray,  # shape (N, K)
         habitat_vec: np.ndarray,  # shape (K,)
     ) -> np.ndarray:
         """
-        Compute sin(θ_i) for each creature i, where θ_i is the angle between
-        creature i's gene sub-vector and the habitat sub-vector.
+        Compute the per-creature resource-finding probability for each creature.
 
-        sin(θ) = |v × h| / (|v| |h|)  ∈ [0, 1]
+        P = (cos θ + 1) / 2   ∈ [0, 1]
 
-          0 → creature genes parallel to habitat (maximally aligned)
-          1 → creature genes perpendicular to habitat (maximally complementary)
+        where θ is the angle between each creature's gene sub-vector and the
+        habitat sub-vector at the relevant loci.
+
+          cos θ = +1  (aligned)    → P = 1.0  — fully exploits this habitat
+          cos θ =  0  (orthogonal) → P = 0.5  — baseline pressure
+          cos θ = −1  (opposed)    → P = 0.0  — cannot extract resources
 
         Computed entirely via numpy for O(N·K) efficiency with no Python loop.
         """
@@ -272,32 +278,31 @@ class Habitat:
         safe = denom > 1e-10
         cos_theta = np.where(safe, dots / np.where(safe, denom, 1.0), 0.0)
         cos_theta = np.clip(cos_theta, -1.0, 1.0)
-        return np.sqrt(1.0 - cos_theta ** 2)  # sin(θ) ∈ [0, 1]
+        return (cos_theta + 1.0) / 2.0  # maps [-1, 1] → [0, 1]
 
     def food_likelihoods(self, creatures: list) -> np.ndarray:
         """
-        Per-creature daily food-finding probability, shape (N,), values in [0, 1].
+        Per-creature daily food-finding probability via (cos θ + 1) / 2.
 
-        Uses the FOOD_GENE_INDICES subspace.  Call with self.alive_creatures
-        for normal simulation use.
+        Shape (N,), values in [0, 1].  Uses the FOOD_GENE_INDICES subspace.
         """
         if not creatures:
             return np.array([], dtype=float)
         indices = self.FOOD_GENE_INDICES
         gene_matrix = np.stack([c.genes[indices] for c in creatures])
-        return self._batch_sin_theta(gene_matrix, self.vector[indices])
+        return self._batch_resource_prob(gene_matrix, self.vector[indices])
 
     def water_likelihoods(self, creatures: list) -> np.ndarray:
         """
-        Per-creature daily water-finding probability, shape (N,), values in [0, 1].
+        Per-creature daily water-finding probability via (cos θ + 1) / 2.
 
-        Uses the WATER_GENE_INDICES subspace.
+        Shape (N,), values in [0, 1].  Uses the WATER_GENE_INDICES subspace.
         """
         if not creatures:
             return np.array([], dtype=float)
         indices = self.WATER_GENE_INDICES
         gene_matrix = np.stack([c.genes[indices] for c in creatures])
-        return self._batch_sin_theta(gene_matrix, self.vector[indices])
+        return self._batch_resource_prob(gene_matrix, self.vector[indices])
 
     # ------------------------------------------------------------------
     # Daily simulation

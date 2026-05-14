@@ -40,7 +40,7 @@ initial_genome_noise        = 0.05
 isolation_probability       = 0.001
 
 [species]
-threshold = 0.95
+threshold = 0.75
 
 
 [habitats]
