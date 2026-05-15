@@ -25,6 +25,35 @@ HABITAT_VECTOR_DIMS = 500
 # local habitat gain a survival edge, while migrants entering a new habitat
 # face immediate resource pressure until they adapt.
 
+# ---------------------------------------------------------------------------
+# Traits logged in per-habitat and per-species daily statistics
+# ---------------------------------------------------------------------------
+# These are property names on Creature.  Logged values use the actual scaled
+# ranges (fecundity 1-8, metabolism 0.5-2.0, etc.) for interpretability.
+LOGGED_TRAITS: tuple[str, ...] = (
+    # Reproduction
+    "fecundity", "reproduction_time", "days_to_sexual_viability",
+    "parental_investment", "reproduction_likelihood",
+    # Survival / physiology
+    "metabolism", "water_efficiency", "max_lifespan",
+    "disease_resistance", "immune_response", "stress_tolerance",
+    # Environmental adaptation
+    "heat_tolerance", "cold_tolerance", "drought_tolerance", "hibernation_tendency",
+    # Movement / behaviour
+    "migration_likelihood", "risk_tolerance", "aggression",
+    "territorial", "social_tendency", "nocturnal_tendency",
+    # Physical
+    "size", "strength", "speed", "camouflage",
+    # Cognitive / ecological
+    "foraging_ability", "intelligence", "adaptability",
+    "pack_hunting", "scavenging_tendency", "communication",
+    # Genetics
+    "mutation_rate", "selectivity",
+    # Predation vulnerability (new)
+    "base_predation_rate",
+)
+
+
 DEFAULT_FOOD_GENE_INDICES: list[int] = (
     list(range(37, 80))     # foraging ability, water efficiency, intelligence loci
     + list(range(110, 170)) # size, strength, speed, physiology loci
@@ -90,6 +119,14 @@ class Habitat:
     # creature with an average trait (~0.5) has only a 0.5% daily chance of
     # migrating — keeping populations stable while still allowing spread.
     DAILY_MIGRATION_BASE: float = 0.01
+
+    # Density-dependent mortality parameters.
+    # Per-day death probability from crowding = PREDATION_ALPHA * N / POPULATION_SUPPORT,
+    # added to each creature's intrinsic base_predation_rate.  When N = POPULATION_SUPPORT
+    # the density term equals PREDATION_ALPHA (~1% for default Forest).  Harsh habitats
+    # use lower values of both, rewarding adaptation with reduced crowding pressure.
+    PREDATION_ALPHA: float = 0.010
+    POPULATION_SUPPORT: int = 400
 
     def __init__(
         self,
@@ -320,15 +357,16 @@ class Habitat:
         ----------------
         1. Compute food / water likelihoods for all living creatures (batched).
         2. Binomial resource draws — each creature either finds food/water or not.
-        3. Update energy / hydration; mark starvation / dehydration deaths.
+        3. Update energy / hydration; mark starvation / dehydration / old-age deaths.
         4. Advance each creature's internal day (aging, pregnancy timer).
         5. Collect litters from females that reached term today.
-        6. Remove creatures that died from the population.
-        7. Migration: willing creatures move to a random passable neighbour.
-        8. Mating: randomly pair viable males and females; offspring stored at
+        6. Apply density-dependent predation to survivors of step 3.
+        7. Remove all dead creatures from the population.
+        8. Migration: willing creatures move to a random passable neighbour.
+        9. Mating: randomly pair viable males and females; offspring stored at
            term in female._pending_offspring.
-        9. Add newborns to the habitat population.
-        10. Attempt spontaneous route isolation (very low probability).
+        10. Add newborns to the habitat population.
+        11. Attempt spontaneous route isolation (very low probability).
 
         Migration events are *returned* rather than applied directly so that the
         simulation runner can process all habitats before moving creatures,
@@ -337,17 +375,19 @@ class Habitat:
         Returns
         -------
         dict
-            "habitat_id"    : str
-            "population"    : int   – alive count after processing
-            "day_results"   : dict[creature_id, day_log]
-            "births"        : list[Creature]  – newborns added to this habitat
-            "deaths"        : list[str]       – creature_ids that died today
-            "mating_events" : list[dict]      – one entry per attempted pairing
-            "migrations"    : list[tuple[Creature, Habitat]]
-                              Each tuple is (creature, destination_habitat).
-                              The creature has already been removed from this
-                              habitat; the runner must add it to the destination.
-            "isolations"    : list[str]  – neighbour habitat_ids newly cut off
+            "habitat_id"       : str
+            "population"       : int   – alive count after processing
+            "day_results"      : dict[creature_id, day_log]
+            "births"           : list[Creature]  – newborns added to this habitat
+            "deaths"           : list[str]       – creature_ids killed by resource
+                                                   stress or old age
+            "predation_deaths" : list[str]       – creature_ids killed by predation
+            "mating_events"    : list[dict]      – one entry per attempted pairing
+            "migrations"       : list[tuple[Creature, Habitat]]
+                                 Each tuple is (creature, destination_habitat).
+                                 The creature has already been removed from this
+                                 habitat; the runner must add it to the destination.
+            "isolations"       : list[str]  – neighbour habitat_ids newly cut off
         """
         alive = self.alive_creatures
 
@@ -404,14 +444,31 @@ class Habitat:
             day_results[creature.creature_id] = log
 
         # ------------------------------------------------------------------
-        # 6. Remove the dead
+        # 6. Density-dependent predation (applied to survivors of step 3)
+        # ------------------------------------------------------------------
+        predation_deaths: list[str] = []
+        alive_after_resources = [c for c in alive if c.is_alive]
+        if alive_after_resources:
+            n_alive = len(alive_after_resources)
+            density_term = self.PREDATION_ALPHA * n_alive / self.POPULATION_SUPPORT
+            base_rates = np.array([c.base_predation_rate for c in alive_after_resources])
+            death_mask = np.random.random(n_alive) < (base_rates + density_term)
+            for i in np.where(death_mask)[0]:
+                creature = alive_after_resources[i]
+                creature.is_alive = False
+                creature.cause_of_death = "predation"
+                predation_deaths.append(creature.creature_id)
+                day_results[creature.creature_id]["cause_of_death"] = "predation"
+
+        # ------------------------------------------------------------------
+        # 7. Remove the dead
         # ------------------------------------------------------------------
         for creature in alive:
             if not creature.is_alive:
                 self._creatures.discard(creature)
 
         # ------------------------------------------------------------------
-        # 7. Migration
+        # 8. Migration
         # ------------------------------------------------------------------
         pending_migrations: list[tuple] = []
         passable = self.passable_neighbors()
@@ -427,7 +484,7 @@ class Habitat:
                     pending_migrations.append((creature, destination))
 
         # ------------------------------------------------------------------
-        # 8. Mating
+        # 9. Mating
         # ------------------------------------------------------------------
         viable_males = [
             c for c in self._creatures
@@ -470,7 +527,7 @@ class Habitat:
             mating_events.append(event)
 
         # ------------------------------------------------------------------
-        # 9. Add newborns to the population; check for speciation events
+        # 10. Add newborns to the population; check for speciation events
         # ------------------------------------------------------------------
         for child in newborns:
             if species_registry is not None:
@@ -478,7 +535,7 @@ class Habitat:
             self._creatures.add(child)
 
         # ------------------------------------------------------------------
-        # 10. Spontaneous isolation
+        # 11. Spontaneous isolation
         # ------------------------------------------------------------------
         isolations = self.try_spontaneous_isolation(probability=isolation_probability)
 
@@ -488,10 +545,70 @@ class Habitat:
             "day_results": day_results,
             "births": newborns,
             "deaths": deaths,
+            "predation_deaths": predation_deaths,
             "mating_events": mating_events,
             "migrations": pending_migrations,
             "isolations": isolations,
         }
+
+    # ------------------------------------------------------------------
+    # Statistics
+    # ------------------------------------------------------------------
+
+    def compute_stats(self) -> dict[str, dict]:
+        """
+        Compute per-species aggregate statistics for the current alive population.
+
+        Called by SimulationRunner after migrations are applied so the snapshot
+        reflects true end-of-day state.  Resource probabilities represent each
+        species' current adaptation level to this habitat — a population drifting
+        toward alignment will show rising mean_food_prob / mean_water_prob over time.
+
+        Returns
+        -------
+        dict mapping species_name → {
+            "count"           : int,
+            "mean_food_prob"  : float,   # adaptation to food in this habitat [0,1]
+            "mean_water_prob" : float,   # adaptation to water in this habitat [0,1]
+            "mean_traits"     : {trait: float, ...}  # all LOGGED_TRAITS
+        }
+        Empty dict if no creatures are alive.
+        """
+        alive = self.alive_creatures
+        if not alive:
+            return {}
+
+        food_probs = self.food_likelihoods(alive)
+        water_probs = self.water_likelihoods(alive)
+
+        groups: dict[str, list] = {}
+        group_food: dict[str, list] = {}
+        group_water: dict[str, list] = {}
+        for i, c in enumerate(alive):
+            sp = c.species
+            if sp not in groups:
+                groups[sp] = []
+                group_food[sp] = []
+                group_water[sp] = []
+            groups[sp].append(c)
+            group_food[sp].append(float(food_probs[i]))
+            group_water[sp].append(float(water_probs[i]))
+
+        stats: dict[str, dict] = {}
+        for sp_name, creatures in groups.items():
+            n = len(creatures)
+            mean_traits = {
+                t: round(sum(getattr(c, t) for c in creatures) / n, 4)
+                for t in LOGGED_TRAITS
+            }
+            stats[sp_name] = {
+                "count": n,
+                "mean_food_prob": round(float(np.mean(group_food[sp_name])), 4),
+                "mean_water_prob": round(float(np.mean(group_water[sp_name])), 4),
+                "mean_traits": mean_traits,
+            }
+
+        return stats
 
     # ------------------------------------------------------------------
     # Dunder helpers

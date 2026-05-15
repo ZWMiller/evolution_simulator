@@ -228,6 +228,17 @@ DEFAULT_TRAIT_GENE_INDICES: dict[str, list[int]] = {
         360, 361, 362, 363, 364, 365, 366,
         367, 368, 369, 370,
     ],
+    # base_predation_rate: intrinsic daily predation vulnerability.
+    # Shares loci with fecundity — encodes the r/K tradeoff: creatures
+    # with high fecundity genes also tend to be more conspicuous/vulnerable
+    # (think mouse vs. elephant).  Unique loci represent body size,
+    # activity level, and general conspicuousness.
+    "base_predation_rate": [
+        # Shared with fecundity (r/K tradeoff)
+        0, 9, 25, 200, 201, 203, 210, 420,
+        # Unique loci: intrinsic conspicuousness and vulnerability
+        371, 372, 373, 374, 375, 376, 377, 378, 379, 380, 381, 382,
+    ],
 }
 
 
@@ -275,6 +286,16 @@ class Creature:
     # Range (0, 1); species subclasses can override to tune selectivity.
     OWA_ALPHA: float = 0.6
 
+    # Scales the [0,1] base_predation_rate trait into a per-day probability.
+    # This is an abstraction for all exogenous mortality not modelled explicitly:
+    # being eaten by a predator, falling to a fatal injury, disease, extreme
+    # weather events, etc.  Rather than simulate predator–prey interactions
+    # directly (which would require a second population of agents), we encode
+    # the creature's intrinsic vulnerability as a heritable trait under
+    # selection pressure.  Density-dependent mortality from the habitat's
+    # PREDATION_ALPHA adds on top.
+    MAX_BASE_PREDATION_RATE: float = 0.005
+
     # Minimum cosine-similarity score (on [-1, 1] scale) required for mating.
     # The selectivity trait can raise this up toward 1.0.
     # Override in subclasses to tune how permissive mating is for a species.
@@ -297,6 +318,9 @@ class Creature:
 
         self.creature_id: str = creature_id if creature_id is not None else str(uuid.uuid4())
         self.parents: list["Creature"] = parents if parents is not None else []
+
+        # Must be initialised before any property access (sex determination calls _compute_trait)
+        self._trait_cache: dict[str, float] = {}
 
         # Vital state
         self.age: int = 0
@@ -338,8 +362,14 @@ class Creature:
         then passed through a sigmoid.  Higher-valued loci receive more weight,
         so beneficial mutations are immediately visible to selection.
 
+        Results are memoised in _trait_cache: since genes are immutable after
+        birth, each trait value is computed at most once per creature lifetime.
+
         Subclasses can tune OWA_ALPHA or override TRAIT_GENE_INDICES[name].
         """
+        cached = self._trait_cache.get(name)
+        if cached is not None:
+            return cached
         indices = self.TRAIT_GENE_INDICES[name]
         vals = self.genes[indices]
         n = len(vals)
@@ -348,7 +378,9 @@ class Creature:
         weights = alpha * (1 - alpha) ** i
         weights /= weights.sum()
         raw = float(np.dot(weights, np.sort(vals)[::-1]))
-        return self._sigmoid(raw)
+        result = self._sigmoid(raw)
+        self._trait_cache[name] = result
+        return result
 
     def trait_indices(self, name: str) -> list[int]:
         """Return the gene indices that contribute to the named trait."""
@@ -536,6 +568,19 @@ class Creature:
         Higher selectivity → harder to find a compatible mate → more genetically protective.
         """
         return self._compute_trait("selectivity")
+
+    @property
+    def base_predation_rate(self) -> float:
+        """
+        Intrinsic daily probability of death from exogenous causes [0, MAX_BASE_PREDATION_RATE].
+
+        Encodes the creature's inherent vulnerability to all mortality sources not
+        modelled explicitly — predation, accidents, disease outbreaks, etc. — rather
+        than simulating predator–prey interactions directly.  Shares loci with fecundity,
+        so high-fecundity genotypes also tend toward higher vulnerability (r/K tradeoff).
+        Density-dependent pressure from the habitat's PREDATION_ALPHA adds on top.
+        """
+        return self._compute_trait("base_predation_rate") * self.MAX_BASE_PREDATION_RATE
 
     @property
     def is_sexually_viable(self) -> bool:

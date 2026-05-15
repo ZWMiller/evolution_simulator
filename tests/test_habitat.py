@@ -6,6 +6,7 @@ from evolution_simulator.habitat import (
     DEFAULT_FOOD_GENE_INDICES,
     DEFAULT_WATER_GENE_INDICES,
     HABITAT_VECTOR_DIMS,
+    LOGGED_TRAITS,
 )
 
 
@@ -496,6 +497,91 @@ class TestSimulateDayMating:
         assert len(result["births"]) >= 1
         for child in result["births"]:
             assert h.has_creature(child)
+
+
+# ---------------------------------------------------------------------------
+# Predation
+# ---------------------------------------------------------------------------
+
+class TestPredation:
+    def test_predation_deaths_key_in_result(self, habitat):
+        c = make_creature(seed=10, sex="male")
+        habitat.add_creature(c)
+        result = habitat.simulate_day()
+        assert "predation_deaths" in result
+
+    def test_high_density_causes_predation(self):
+        """Pack population far above support capacity — expect predation deaths."""
+        rng = np.random.default_rng(0)
+        hab = Habitat(vector=rng.standard_normal(HABITAT_VECTOR_DIMS))
+        hab.PREDATION_ALPHA = 1.0    # guarantee death at any population > 0
+        hab.POPULATION_SUPPORT = 1
+        c = make_creature(seed=11, sex="male")
+        c.energy = 1.0
+        c.hydration = 1.0
+        # Align genes so creature doesn't starve before predation
+        c.genes[DEFAULT_FOOD_GENE_INDICES] = hab.vector[DEFAULT_FOOD_GENE_INDICES]
+        c.genes[DEFAULT_WATER_GENE_INDICES] = hab.vector[DEFAULT_WATER_GENE_INDICES]
+        hab.add_creature(c)
+        result = hab.simulate_day()
+        assert len(result["predation_deaths"]) >= 1
+
+    def test_zero_density_no_predation_pressure(self):
+        """Single creature in a zero-alpha habitat has only genetic base rate."""
+        rng = np.random.default_rng(1)
+        hab = Habitat(vector=rng.standard_normal(HABITAT_VECTOR_DIMS))
+        hab.PREDATION_ALPHA = 0.0
+        c = make_creature(seed=12, sex="male")
+        # Force zero base predation rate by anti-setting the trait genes
+        c.genes[DEFAULT_TRAIT_GENE_INDICES["base_predation_rate"]] = -100.0
+        c._trait_cache.clear()   # clear cache so new gene values take effect
+        c.energy = 1.0
+        c.hydration = 1.0
+        hab.add_creature(c)
+        result = hab.simulate_day()
+        assert result["predation_deaths"] == []
+
+
+# ---------------------------------------------------------------------------
+# compute_stats
+# ---------------------------------------------------------------------------
+
+class TestComputeStats:
+    def test_empty_habitat_returns_empty_dict(self, habitat):
+        assert habitat.compute_stats() == {}
+
+    def test_stats_structure(self, habitat):
+        c = make_creature(seed=13, sex="female")
+        c.species = "Test Species"
+        habitat.add_creature(c)
+        stats = habitat.compute_stats()
+        assert "Test Species" in stats
+        sp = stats["Test Species"]
+        assert sp["count"] == 1
+        assert 0.0 <= sp["mean_food_prob"] <= 1.0
+        assert 0.0 <= sp["mean_water_prob"] <= 1.0
+        assert set(sp["mean_traits"].keys()) == set(LOGGED_TRAITS)
+
+    def test_stats_count_matches_population(self, habitat):
+        for i in range(5):
+            c = make_creature(seed=i + 20, sex="female" if i % 2 == 0 else "male")
+            c.species = "Pack"
+            habitat.add_creature(c)
+        stats = habitat.compute_stats()
+        assert stats["Pack"]["count"] == 5
+
+    def test_stats_separates_species(self, habitat):
+        for i in range(3):
+            c = make_creature(seed=i + 30, sex="male")
+            c.species = "Alpha"
+            habitat.add_creature(c)
+        for i in range(2):
+            c = make_creature(seed=i + 40, sex="female")
+            c.species = "Beta"
+            habitat.add_creature(c)
+        stats = habitat.compute_stats()
+        assert stats["Alpha"]["count"] == 3
+        assert stats["Beta"]["count"] == 2
 
 
 # ---------------------------------------------------------------------------

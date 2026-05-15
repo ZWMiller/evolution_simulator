@@ -94,12 +94,13 @@ class TestTraitComputation:
         assert all(0 <= i < GENE_DIMS for i in indices)
 
     def test_gene_mutation_changes_trait(self, creature):
-        """Modifying a contributing gene index should change the trait value."""
+        """A creature with a modified gene should have a different trait value."""
         name = "fecundity"
         before = creature._compute_trait(name)
-        idx = creature.TRAIT_GENE_INDICES[name][0]
-        creature.genes[idx] += 100.0  # large shift
-        after = creature._compute_trait(name)
+        modified_genes = creature.genes.copy()
+        modified_genes[creature.TRAIT_GENE_INDICES[name][0]] += 100.0
+        new_creature = Creature(genes=modified_genes)
+        after = new_creature._compute_trait(name)
         assert before != after
 
 
@@ -131,6 +132,19 @@ class TestTraitProperties:
 
     def test_reproduction_likelihood_range(self, creature):
         assert 0.0 <= creature.reproduction_likelihood <= 1.0
+
+    def test_base_predation_rate_range(self, creature):
+        rate = creature.base_predation_rate
+        assert 0.0 <= rate <= Creature.MAX_BASE_PREDATION_RATE
+
+    def test_base_predation_rate_fecundity_overlap(self):
+        pred_loci = set(DEFAULT_TRAIT_GENE_INDICES["base_predation_rate"])
+        fec_loci = set(DEFAULT_TRAIT_GENE_INDICES["fecundity"])
+        assert len(pred_loci & fec_loci) >= 5, "r/K tradeoff requires shared loci"
+
+    def test_trait_cache_populated_after_access(self, creature):
+        _ = creature.metabolism
+        assert "metabolism" in creature._trait_cache
 
     @pytest.mark.parametrize("trait", [
         "parental_investment", "aggression", "migration_likelihood",

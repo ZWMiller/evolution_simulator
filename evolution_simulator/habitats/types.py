@@ -92,6 +92,13 @@ class TypedHabitat(Habitat):
 #   WATER_HYDRATION_GAIN = 0.30
 #   WATER_HYDRATION_COST = 0.40  (× (1 - creature.water_efficiency))
 #   DAILY_MIGRATION_BASE = 0.01
+#   PREDATION_ALPHA      = 0.010  (density term at N = POPULATION_SUPPORT)
+#   POPULATION_SUPPORT   = 400    (carrying capacity for density-dependent mortality)
+#
+# Predation design: harsh habitats have low POPULATION_SUPPORT and low alpha —
+# resource scarcity limits population, keeping crowding mortality minimal for
+# adapted survivors.  Rich habitats have high support and higher alpha — easy
+# resources allow large populations, which ramp up crowding pressure.
 # ---------------------------------------------------------------------------
 
 class Desert(TypedHabitat):
@@ -101,13 +108,17 @@ class Desert(TypedHabitat):
     WATER_HYDRATION_COST: float = 0.70   # dehydrates fast without adaptation
     FOOD_ENERGY_COST: float = 0.35       # foraging requires more effort
     FOOD_ENERGY_GAIN: float = 0.25       # sparse food patches
+    PREDATION_ALPHA: float = 0.003
+    POPULATION_SUPPORT: int = 120
 
 
 class Forest(TypedHabitat):
     """Temperate woodland. Balanced resources; moderate selection pressure."""
     TYPE_SEED = 1002
     TYPE_NAME = "Forest"
-    # Uses Habitat defaults — represents the baseline environment
+    # Uses Habitat defaults for resources — represents the baseline environment
+    PREDATION_ALPHA: float = 0.010
+    POPULATION_SUPPORT: int = 400
 
 
 class Rainforest(TypedHabitat):
@@ -116,6 +127,8 @@ class Rainforest(TypedHabitat):
     TYPE_NAME = "Rainforest"
     FOOD_ENERGY_GAIN: float = 0.40
     WATER_HYDRATION_GAIN: float = 0.45
+    PREDATION_ALPHA: float = 0.015       # rich habitat → high density → more crowding pressure
+    POPULATION_SUPPORT: int = 600
 
 
 class Plains(TypedHabitat):
@@ -123,6 +136,8 @@ class Plains(TypedHabitat):
     TYPE_SEED = 1004
     TYPE_NAME = "Plains"
     DAILY_MIGRATION_BASE: float = 0.015  # flat terrain aids dispersal
+    PREDATION_ALPHA: float = 0.010
+    POPULATION_SUPPORT: int = 500
 
 
 class Tundra(TypedHabitat):
@@ -132,6 +147,8 @@ class Tundra(TypedHabitat):
     FOOD_ENERGY_GAIN: float = 0.20
     FOOD_ENERGY_COST: float = 0.35       # high metabolic cost in cold
     WATER_HYDRATION_GAIN: float = 0.25
+    PREDATION_ALPHA: float = 0.004
+    POPULATION_SUPPORT: int = 150
 
 
 class Ocean(TypedHabitat):
@@ -142,6 +159,8 @@ class Ocean(TypedHabitat):
     WATER_HYDRATION_GAIN: float = 0.50
     FOOD_ENERGY_GAIN: float = 0.35
     DAILY_MIGRATION_BASE: float = 0.02   # currents aid dispersal
+    PREDATION_ALPHA: float = 0.008
+    POPULATION_SUPPORT: int = 300
 
 
 class CoralReef(TypedHabitat):
@@ -151,6 +170,8 @@ class CoralReef(TypedHabitat):
     FOOD_ENERGY_GAIN: float = 0.45
     WATER_HYDRATION_GAIN: float = 0.50
     WATER_HYDRATION_COST: float = 0.0
+    PREDATION_ALPHA: float = 0.020       # tight niche → intense density competition
+    POPULATION_SUPPORT: int = 400
 
 
 class Wetlands(TypedHabitat):
@@ -159,6 +180,8 @@ class Wetlands(TypedHabitat):
     TYPE_NAME = "Wetlands"
     WATER_HYDRATION_GAIN: float = 0.45
     WATER_HYDRATION_COST: float = 0.0    # water everywhere
+    PREDATION_ALPHA: float = 0.012
+    POPULATION_SUPPORT: int = 500
 
 
 class Alpine(TypedHabitat):
@@ -168,6 +191,8 @@ class Alpine(TypedHabitat):
     FOOD_ENERGY_GAIN: float = 0.18
     FOOD_ENERGY_COST: float = 0.40       # high-altitude exertion
     DAILY_MIGRATION_BASE: float = 0.005  # rugged terrain limits movement
+    PREDATION_ALPHA: float = 0.002       # sparse population → low density pressure
+    POPULATION_SUPPORT: int = 80
 
 
 class Volcanic(TypedHabitat):
@@ -179,6 +204,8 @@ class Volcanic(TypedHabitat):
     WATER_HYDRATION_GAIN: float = 0.20
     WATER_HYDRATION_COST: float = 0.60
     DAILY_MIGRATION_BASE: float = 0.005  # inhospitable terrain
+    PREDATION_ALPHA: float = 0.001
+    POPULATION_SUPPORT: int = 50
 
 
 class Cave(TypedHabitat):
@@ -188,6 +215,8 @@ class Cave(TypedHabitat):
     FOOD_ENERGY_GAIN: float = 0.15
     WATER_HYDRATION_GAIN: float = 0.30   # underground water sources
     DAILY_MIGRATION_BASE: float = 0.003  # difficult to navigate
+    PREDATION_ALPHA: float = 0.002
+    POPULATION_SUPPORT: int = 80
 
 
 class Arctic(TypedHabitat):
@@ -197,6 +226,8 @@ class Arctic(TypedHabitat):
     FOOD_ENERGY_GAIN: float = 0.15
     FOOD_ENERGY_COST: float = 0.40
     WATER_HYDRATION_GAIN: float = 0.35
+    PREDATION_ALPHA: float = 0.001
+    POPULATION_SUPPORT: int = 60
 
 
 class River(TypedHabitat):
@@ -206,6 +237,8 @@ class River(TypedHabitat):
     WATER_HYDRATION_GAIN: float = 0.45
     WATER_HYDRATION_COST: float = 0.0
     DAILY_MIGRATION_BASE: float = 0.015  # currents aid movement
+    PREDATION_ALPHA: float = 0.010
+    POPULATION_SUPPORT: int = 400
 
 
 class Savanna(TypedHabitat):
@@ -215,6 +248,8 @@ class Savanna(TypedHabitat):
     FOOD_ENERGY_GAIN: float = 0.28
     WATER_HYDRATION_COST: float = 0.50
     DAILY_MIGRATION_BASE: float = 0.012
+    PREDATION_ALPHA: float = 0.008
+    POPULATION_SUPPORT: int = 350
 
 
 # ---------------------------------------------------------------------------

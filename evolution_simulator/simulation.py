@@ -43,7 +43,7 @@ from pathlib import Path
 from typing import Optional
 
 from .creature import Creature, DEFAULT_TRAIT_GENE_INDICES, GENE_DIMS
-from .habitat import Habitat
+from .habitat import Habitat, LOGGED_TRAITS
 from .habitats import HABITAT_TYPE_REGISTRY
 from .species import SpeciesRegistry
 
@@ -266,15 +266,57 @@ class SimulationRunner:
                 species_counts[c.species] += 1
                 total_pop += 1
 
+        # ------------------------------------------------------------------
+        # Habitat stats + species stats (computed after migrations applied)
+        # ------------------------------------------------------------------
+        habitat_stats: dict = {}
+        # Accumulators for species-level aggregation
+        sp_total: dict[str, int] = {}
+        sp_hab_counts: dict[str, dict[str, int]] = {}
+        sp_trait_sums: dict[str, dict[str, float]] = {}
+
+        for hab_id, hab in self.habitats.items():
+            stats = hab.compute_stats()
+            habitat_stats[hab_id] = {
+                "habitat_id": hab_id,
+                "habitat_name": hab.name,
+                "habitat_type": self.habitat_types.get(hab_id, "Unknown"),
+                "by_species": stats,
+            }
+            for sp_name, sp_data in stats.items():
+                n = sp_data["count"]
+                if sp_name not in sp_total:
+                    sp_total[sp_name] = 0
+                    sp_hab_counts[sp_name] = {}
+                    sp_trait_sums[sp_name] = {t: 0.0 for t in LOGGED_TRAITS}
+                sp_total[sp_name] += n
+                sp_hab_counts[sp_name][hab_id] = n
+                for t in LOGGED_TRAITS:
+                    sp_trait_sums[sp_name][t] += sp_data["mean_traits"][t] * n
+
+        species_stats: dict = {}
+        for sp_name, n in sp_total.items():
+            species_stats[sp_name] = {
+                "total_count": n,
+                "habitat_counts": sp_hab_counts[sp_name],
+                "mean_traits": {
+                    t: round(sp_trait_sums[sp_name][t] / n, 4)
+                    for t in LOGGED_TRAITS
+                },
+            }
+
+        # ------------------------------------------------------------------
+        # Per-habitat event log
+        # ------------------------------------------------------------------
         habitats_log: dict = {}
         for hab_id, result in habitat_results.items():
             hab = self.habitats[hab_id]
-
             hab_species = Counter(c.species for c in hab.alive_creatures)
 
-            # Deaths with cause and age from the per-creature day log
+            # Combine resource/age deaths and predation deaths into one list
+            all_death_ids = result["deaths"] + result.get("predation_deaths", [])
             deaths_detail = []
-            for cid in result["deaths"]:
+            for cid in all_death_ids:
                 creature_log = result["day_results"].get(cid, {})
                 deaths_detail.append({
                     "creature_id": cid,
@@ -282,7 +324,6 @@ class SimulationRunner:
                     "age": creature_log.get("age"),
                 })
 
-            # Births
             births_detail = [
                 {
                     "creature_id": c.creature_id,
@@ -293,7 +334,6 @@ class SimulationRunner:
                 for c in result["births"]
             ]
 
-            # Migrations out of this habitat
             migrations_out = [
                 {
                     "creature_id": c.creature_id,
@@ -324,6 +364,8 @@ class SimulationRunner:
             "global_species_distribution": dict(species_counts),
             "speciation_events": new_speciations,
             "migrations": migration_log,
+            "habitat_stats": habitat_stats,
+            "species_stats": species_stats,
             "habitats": habitats_log,
         }
 
