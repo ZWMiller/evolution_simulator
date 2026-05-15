@@ -44,7 +44,7 @@ Sex is gene-determined: `sigmoid(sex_determination_genes) >= 0.5` → female.
 
 ### Resource Geometry (`habitat.py`, `habitats/types.py`)
 
-Each `Habitat` has its own 500-dim environment vector. Food/water discovery uses **cross-product geometry**: `P(resource) = sin(θ)` where θ is the angle between a creature's genes and the habitat vector. A creature parallel to the habitat finds nothing; a creature orthogonal to it exploits resources maximally. This drives niche differentiation without any explicit fitness function.
+Each `Habitat` has its own 500-dim environment vector. Food/water discovery uses **dot-product geometry**: `P(resource) = (cos θ + 1) / 2` where θ is the angle between a creature's genes and the habitat vector. A creature aligned with the habitat finds resources with P=1 (perfectly adapted); orthogonal gives P=0.5 (unadapted baseline); anti-aligned gives P=0 (maladapted). This drives local adaptation pressure without any explicit fitness function.
 
 Each habitat type (`habitats/types.py`) has a fixed characteristic center vector seeded from a `TYPE_SEED` constant via `__init_subclass__`, with Gaussian per-instance noise layered on top.
 
@@ -65,7 +65,7 @@ Within a single day, `Habitat.simulate_day()` runs in this fixed order:
 
 ### Species Detection (`species.py`)
 
-`SpeciesRegistry` maintains a list of progenitor gene vectors. At birth, a newborn's genome is compared to **every** registered progenitor via vectorized cosine similarity. It joins the closest existing species if the score exceeds `species_threshold` (default 0.95), otherwise a speciation event is declared.
+`SpeciesRegistry` maintains a list of progenitor gene vectors. At birth, a newborn's genome is compared to **every** registered progenitor via vectorized cosine similarity. It joins the closest existing species if the score exceeds `species_threshold` (default 0.75), otherwise a speciation event is declared.
 
 Checking all progenitors (not just the parent's species) prevents two failure modes: drift-back (a lineage re-approaching an ancestral region would otherwise be logged as a new species) and convergent evolution (two lineages converging on the same genetic region would otherwise be counted twice).
 
@@ -83,7 +83,7 @@ Each `[[habitats.instances]]` block can override `initial_species_per_habitat` a
 
 ## Key Invariants to Preserve
 
-- `sin(θ)` resource geometry is central to niche differentiation — don't replace it with dot product or explicit fitness scores
+- `(cos θ + 1) / 2` resource geometry is central to local adaptation — don't replace it with cross-product/sin or explicit fitness scores. Aligned genes → P=1, orthogonal → P=0.5, anti-aligned → P=0
 - OWA trait aggregation (not plain mean) is deliberate: it makes individual mutations selectable by giving higher-valued loci more phenotypic weight. `OWA_ALPHA = 0.6` is the class-level default; change it on subclasses, not the base class
 - Migration events must not be applied within `Habitat.simulate_day()`; they must flow through `SimulationRunner.step()` to avoid double-simulation
 - Species assignment must compare against all progenitors, not just parent lineage
