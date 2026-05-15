@@ -105,8 +105,8 @@ class Desert(TypedHabitat):
     """Hot, arid desert. Water is scarce; food requires specialist adaptation."""
     TYPE_SEED = 1001
     TYPE_NAME = "Desert"
-    WATER_HYDRATION_COST: float = 0.70   # dehydrates fast without adaptation
-    FOOD_ENERGY_COST: float = 0.35       # foraging requires more effort
+    WATER_HYDRATION_COST: float = 0.44   # dehydrates fast without adaptation
+    FOOD_ENERGY_COST: float = 0.21       # foraging requires more effort
     FOOD_ENERGY_GAIN: float = 0.25       # sparse food patches
     PREDATION_ALPHA: float = 0.003
     POPULATION_SUPPORT: int = 120
@@ -145,7 +145,7 @@ class Tundra(TypedHabitat):
     TYPE_SEED = 1005
     TYPE_NAME = "Tundra"
     FOOD_ENERGY_GAIN: float = 0.20
-    FOOD_ENERGY_COST: float = 0.35       # high metabolic cost in cold
+    FOOD_ENERGY_COST: float = 0.21       # high metabolic cost in cold
     WATER_HYDRATION_GAIN: float = 0.25
     PREDATION_ALPHA: float = 0.004
     POPULATION_SUPPORT: int = 150
@@ -189,7 +189,7 @@ class Alpine(TypedHabitat):
     TYPE_SEED = 1009
     TYPE_NAME = "Alpine"
     FOOD_ENERGY_GAIN: float = 0.18
-    FOOD_ENERGY_COST: float = 0.40       # high-altitude exertion
+    FOOD_ENERGY_COST: float = 0.24       # high-altitude exertion
     DAILY_MIGRATION_BASE: float = 0.005  # rugged terrain limits movement
     PREDATION_ALPHA: float = 0.002       # sparse population → low density pressure
     POPULATION_SUPPORT: int = 80
@@ -200,9 +200,9 @@ class Volcanic(TypedHabitat):
     TYPE_SEED = 1010
     TYPE_NAME = "Volcanic"
     FOOD_ENERGY_GAIN: float = 0.22
-    FOOD_ENERGY_COST: float = 0.40
+    FOOD_ENERGY_COST: float = 0.24
     WATER_HYDRATION_GAIN: float = 0.20
-    WATER_HYDRATION_COST: float = 0.60
+    WATER_HYDRATION_COST: float = 0.38
     DAILY_MIGRATION_BASE: float = 0.005  # inhospitable terrain
     PREDATION_ALPHA: float = 0.001
     POPULATION_SUPPORT: int = 50
@@ -224,7 +224,7 @@ class Arctic(TypedHabitat):
     TYPE_SEED = 1012
     TYPE_NAME = "Arctic"
     FOOD_ENERGY_GAIN: float = 0.15
-    FOOD_ENERGY_COST: float = 0.40
+    FOOD_ENERGY_COST: float = 0.24
     WATER_HYDRATION_GAIN: float = 0.35
     PREDATION_ALPHA: float = 0.001
     POPULATION_SUPPORT: int = 60
@@ -246,7 +246,7 @@ class Savanna(TypedHabitat):
     TYPE_SEED = 1014
     TYPE_NAME = "Savanna"
     FOOD_ENERGY_GAIN: float = 0.28
-    WATER_HYDRATION_COST: float = 0.50
+    WATER_HYDRATION_COST: float = 0.31
     DAILY_MIGRATION_BASE: float = 0.012
     PREDATION_ALPHA: float = 0.008
     POPULATION_SUPPORT: int = 350

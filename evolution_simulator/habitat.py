@@ -111,9 +111,9 @@ class Habitat:
     WATER_GENE_INDICES: list[int] = DEFAULT_WATER_GENE_INDICES
 
     FOOD_ENERGY_GAIN: float = 0.30
-    FOOD_ENERGY_COST: float = 0.25   # multiplied by creature.metabolism
+    FOOD_ENERGY_COST: float = 0.15   # multiplied by creature.metabolism
     WATER_HYDRATION_GAIN: float = 0.30
-    WATER_HYDRATION_COST: float = 0.40  # multiplied by (1 - creature.water_efficiency)
+    WATER_HYDRATION_COST: float = 0.25  # multiplied by (1 - creature.water_efficiency)
 
     # Raw migration_likelihood ∈ [0, 1] is multiplied by this so that a
     # creature with an average trait (~0.5) has only a 0.5% daily chance of

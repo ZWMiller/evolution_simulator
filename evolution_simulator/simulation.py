@@ -49,8 +49,10 @@ from .species import SpeciesRegistry
 
 logger = logging.getLogger(__name__)
 
-# Gene indices that control sex determination (sigmoid > 0.5 → female).
+# Gene indices forced in founding genomes to bootstrap viable life-history traits.
 _SEX_GENE_INDICES: list[int] = DEFAULT_TRAIT_GENE_INDICES["sex_determination"]
+_MATURITY_GENE_INDICES: list[int] = DEFAULT_TRAIT_GENE_INDICES["days_to_sexual_viability"]
+_GESTATION_GENE_INDICES: list[int] = DEFAULT_TRAIT_GENE_INDICES["reproduction_time"]
 
 
 # ---------------------------------------------------------------------------
@@ -158,6 +160,12 @@ class SimulationRunner:
                         genes[_SEX_GENE_INDICES] = 10.0   # female
                     else:
                         genes[_SEX_GENE_INDICES] = -10.0  # male
+                    # Force fast maturation and gestation so the founding population
+                    # can reproduce quickly and establish a next generation.  These
+                    # loci are inherited by offspring, so the fast life-history
+                    # traits propagate until mutation drifts them upward.
+                    genes[_MATURITY_GENE_INDICES] = -10.0   # min days_to_sexual_viability (~30d)
+                    genes[_GESTATION_GENE_INDICES] = -10.0  # min reproduction_time (~10d)
 
                     creature = Creature(genes=genes)
                     creature.species = species_name
