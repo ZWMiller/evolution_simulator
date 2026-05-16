@@ -199,9 +199,9 @@ DEFAULT_TRAIT_GENE_INDICES: dict[str, list[int]] = {
 
     # --- Reproduction / genetics ---
     # sex_determination: heritable; sigmoid > 0.5 → female.
-    # Intentionally kept outside the compatibility_genes index ranges
-    # (80-129, 140-189, 220-269, 285-339, 390-429) so that forcing sex
-    # at birth does not corrupt the mate-compatibility cosine similarity.
+    # Kept outside the compatibility_genes index ranges
+    # (80-129, 140-189, 220-269, 285-339, 390-429) so that sex loci
+    # do not influence mate-compatibility cosine similarity.
     "sex_determination": [
         0, 3, 77, 133, 195, 283, 344, 350,
         351, 352, 433, 434, 435,

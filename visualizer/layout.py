@@ -15,10 +15,10 @@ from visualizer.style import BG, PANEL_BG, BORDER, TEXT, DIMTEXT, BRIGHT, FONT
 
 
 def build(run: dict) -> html.Div:
-    all_days = run["all_days"]
-    min_day  = all_days[0]
-    max_day  = all_days[-1]
-    step     = max(1, len(all_days) // 10)
+    all_weeks = run["all_weeks"]
+    min_week  = all_weeks[0]
+    max_week  = all_weeks[-1]
+    step      = max(1, len(all_weeks) // 10)
     summary  = run["summary"]
 
     status_color = "#aa2020" if run["extinct"] else "#3a7a3a"
@@ -38,7 +38,7 @@ def build(run: dict) -> html.Div:
                 style=dict(**_btn_style, color=DIMTEXT, marginRight="24px"),
             ),
             html.Span(
-                f"DAYS: {run['days_simulated']}",
+                f"WEEKS: {run['weeks_simulated']}",
                 style=dict(color=DIMTEXT, marginRight="24px", fontSize="12px"),
             ),
             html.Span(
@@ -58,7 +58,7 @@ def build(run: dict) -> html.Div:
             ),
             html.Span(
                 id="day-display",
-                children=f"DAY: {min_day:04d}",
+                children=f"WEEK: {min_week:04d}",
                 style=dict(color=BRIGHT, marginLeft="auto",
                            fontSize="13px", letterSpacing="0.1em"),
             ),
@@ -74,7 +74,7 @@ def build(run: dict) -> html.Div:
     graph_area = html.Div(
         cyto.Cytoscape(
             id="cyto-graph",
-            elements=build_cyto_elements(run, min_day),
+            elements=build_cyto_elements(run, min_week),
             layout={"name": "preset"},
             stylesheet=CYTO_STYLESHEET,
             style={"width": "100%", "height": "100%", "backgroundColor": BG},
@@ -136,8 +136,8 @@ def build(run: dict) -> html.Div:
         style=dict(display="flex", flex="1", overflow="hidden"),
     )
 
-    marks = {d: str(d) for d in range(min_day, max_day + 1, step)}
-    marks[max_day] = str(max_day)
+    marks = {w: str(w) for w in range(min_week, max_week + 1, step)}
+    marks[max_week] = str(max_week)
 
     _step_btn = dict(
         background="none", border=f"1px solid {BORDER}",
@@ -161,18 +161,18 @@ def build(run: dict) -> html.Div:
                     alignSelf="center", marginRight="16px", flexShrink="0",
                 ),
             ),
-            html.Button("◀", id="prev-day-btn", n_clicks=0, style=_step_btn),
+            html.Button("◀", id="prev-week-btn", n_clicks=0, style=_step_btn),
             html.Div(
                 dcc.Slider(
                     id="timeline-slider",
-                    min=min_day, max=max_day, step=1,
-                    value=min_day, marks=marks,
+                    min=min_week, max=max_week, step=1,
+                    value=min_week, marks=marks,
                     tooltip={"placement": "top", "always_visible": True},
                     updatemode="drag",
                 ),
                 style=dict(flex="1", alignSelf="center", padding="0 8px"),
             ),
-            html.Button("▶", id="next-day-btn", n_clicks=0, style=_step_btn),
+            html.Button("▶", id="next-week-btn", n_clicks=0, style=_step_btn),
         ],
         style=dict(
             display="flex", height="72px", padding="0 20px",

@@ -42,17 +42,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from .creature import Creature, DEFAULT_TRAIT_GENE_INDICES, GENE_DIMS
+from .creature import Creature, GENE_DIMS
 from .habitat import Habitat, LOGGED_TRAITS
 from .habitats import HABITAT_TYPE_REGISTRY
 from .species import SpeciesRegistry
 
 logger = logging.getLogger(__name__)
-
-# Gene indices forced in founding genomes to bootstrap viable life-history traits.
-_SEX_GENE_INDICES: list[int] = DEFAULT_TRAIT_GENE_INDICES["sex_determination"]
-_MATURITY_GENE_INDICES: list[int] = DEFAULT_TRAIT_GENE_INDICES["weeks_to_sexual_viability"]
-_GESTATION_GENE_INDICES: list[int] = DEFAULT_TRAIT_GENE_INDICES["reproduction_time"]
 
 
 # ---------------------------------------------------------------------------
@@ -154,23 +149,12 @@ class SimulationRunner:
 
                 for i in range(n_per):
                     genes = founding_genes + rng.standard_normal(GENE_DIMS) * genome_noise
-                    # Force a 50/50 sex split within each group so mating is
-                    # always possible regardless of the founding genome's sex loci.
-                    if i < n_per // 2:
-                        genes[_SEX_GENE_INDICES] = 10.0   # female
-                    else:
-                        genes[_SEX_GENE_INDICES] = -10.0  # male
-                    # Force fast maturation and gestation so the founding population
-                    # can reproduce quickly and establish a next generation.  These
-                    # loci are inherited by offspring, so the fast life-history
-                    # traits propagate until mutation drifts them upward.
-                    genes[_MATURITY_GENE_INDICES] = -10.0   # min weeks_to_sexual_viability (~4w)
-                    genes[_GESTATION_GENE_INDICES] = -10.0  # min reproduction_time (~1w)
-
                     creature = Creature(genes=genes)
+                    # Assign a 50/50 sex split directly so mating is possible
+                    # regardless of what the founding genome's sex loci encode.
+                    creature.sex = "female" if i % 2 == 0 else "male"
                     creature.species = species_name
-                    # Start founding creatures at sexual maturity so mating can
-                    # happen immediately without waiting out the maturity period.
+                    # Start at sexual maturity so mating begins on week 1.
                     creature.age = creature.weeks_to_sexual_viability + 1
                     hab.add_creature(creature)
 

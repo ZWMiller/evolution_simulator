@@ -29,47 +29,47 @@ def load_run(log_dir: Path) -> dict:
     hab_types   = {h["id"]: h["type"] for h in metadata["habitats"]}
     connections = metadata.get("connections", [])
 
-    days_data: dict[int, dict] = {}
-    for p in sorted(log_dir.glob("day_*.json")):
+    weeks_data: dict[int, dict] = {}
+    for p in sorted(log_dir.glob("week_*.json")):
         with open(p) as f:
             d = json.load(f)
-        days_data[d["day"]] = d
+        weeks_data[d["week"]] = d
 
-    all_days = sorted(days_data.keys())
+    all_weeks = sorted(weeks_data.keys())
     all_species: set[str] = set()
     global_series: list[dict]                         = []
     hab_pop:       dict[str, dict[int, int]]          = {h: {} for h in hab_ids}
     species_global: dict[str, list[dict]]             = {}
     species_per_hab: dict[str, dict[str, list[dict]]] = {h: {} for h in hab_ids}
-    migrations_by_day:  dict[int, list[dict]]         = {}
+    migrations_by_week:  dict[int, list[dict]]         = {}
     migrations_by_edge: dict[tuple, list[dict]]       = {}
-    speciation_by_day:  dict[int, list[dict]]         = {}
+    speciation_by_week:  dict[int, list[dict]]         = {}
 
     from visualizer.style import ALL_TRAITS  # avoid circular at module level
 
-    for day_n in all_days:
-        d = days_data[day_n]
+    for week_n in all_weeks:
+        d = weeks_data[week_n]
         all_species.update(d.get("global_species_distribution", {}).keys())
 
         global_series.append({
-            "day":           day_n,
+            "week":          week_n,
             "population":    d["global_population"],
             "species_count": d["global_species_count"],
         })
 
         for hab_id in hab_ids:
             hab_log = d.get("habitats", {}).get(hab_id, {})
-            hab_pop[hab_id][day_n] = hab_log.get("population", 0)
+            hab_pop[hab_id][week_n] = hab_log.get("population", 0)
 
         for sp, sp_data in d.get("species_stats", {}).items():
-            row: dict = {"day": day_n, "count": sp_data["total_count"]}
+            row: dict = {"week": week_n, "count": sp_data["total_count"]}
             row.update(sp_data.get("mean_traits", {}))
             species_global.setdefault(sp, []).append(row)
 
         for hab_id, hab_data in d.get("habitat_stats", {}).items():
             for sp, sp_data in hab_data.get("by_species", {}).items():
                 row = {
-                    "day":             day_n,
+                    "week":            week_n,
                     "count":           sp_data["count"],
                     "mean_food_prob":  sp_data.get("mean_food_prob"),
                     "mean_water_prob": sp_data.get("mean_water_prob"),
@@ -78,12 +78,12 @@ def load_run(log_dir: Path) -> dict:
                 species_per_hab.setdefault(hab_id, {}).setdefault(sp, []).append(row)
 
         migs = d.get("migrations", [])
-        migrations_by_day[day_n] = migs
+        migrations_by_week[week_n] = migs
         for m in migs:
             key = (m["from_habitat"], m["to_habitat"])
-            migrations_by_edge.setdefault(key, []).append({**m, "day": day_n})
+            migrations_by_edge.setdefault(key, []).append({**m, "week": week_n})
 
-        speciation_by_day[day_n] = d.get("speciation_events", [])
+        speciation_by_week[week_n] = d.get("speciation_events", [])
 
     node_positions = _spring_layout(hab_ids, connections)
 
@@ -97,18 +97,18 @@ def load_run(log_dir: Path) -> dict:
         "hab_names":           hab_names,
         "hab_types":           hab_types,
         "connections":         connections,
-        "all_days":            all_days,
+        "all_weeks":            all_weeks,
         "all_species":         sorted(all_species),
-        "days_data":           days_data,
+        "weeks_data":           weeks_data,
         "global_series":       global_series,
         "hab_pop":             hab_pop,
         "species_global":      species_global,
         "species_per_hab":     species_per_hab,
-        "migrations_by_day":   migrations_by_day,
+        "migrations_by_week":   migrations_by_week,
         "migrations_by_edge":  migrations_by_edge,
-        "speciation_by_day":   speciation_by_day,
+        "speciation_by_week":   speciation_by_week,
         "node_positions":      node_positions,
-        "days_simulated":      summary["days_simulated"],
+        "weeks_simulated":     summary["weeks_simulated"],
         "extinct":             summary["extinct"],
     }
 
@@ -146,7 +146,7 @@ def _spring_layout(hab_ids: list, connections: list, w: int = 560, h: int = 420)
 
 
 def latest_run(base: Path) -> Path:
-    runs = sorted(base.glob("*/day_00001.json"))
+    runs = sorted(base.glob("*/week_00001.json"))
     if not runs:
         raise FileNotFoundError(f"No simulation run found under {base}")
     return runs[-1].parent

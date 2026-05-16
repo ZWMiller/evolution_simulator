@@ -19,7 +19,7 @@ def _base_layout(**overrides) -> dict:
         plot_bgcolor="#0a0e0a",
         font=dict(color=TEXT, family=FONT, size=10),
         margin=dict(t=28, b=28, l=40, r=12),
-        xaxis=dict(color=DIMTEXT, gridcolor=BORDER, zeroline=False, title_text="day"),
+        xaxis=dict(color=DIMTEXT, gridcolor=BORDER, zeroline=False, title_text="week"),
         yaxis=dict(color=DIMTEXT, gridcolor=BORDER, zeroline=False),
         showlegend=False,
         height=180,
@@ -42,7 +42,7 @@ def species_population(run: dict, species: str, hab_id: str | None) -> go.Figure
         if hab_id
         else run["species_global"].get(species, [])
     )
-    days = [r["day"] for r in rows]
+    days = [r["week"] for r in rows]
     vals = [r["count"] for r in rows]
     color = _hab_border(run, hab_id)
     scope = run["hab_names"].get(hab_id, "global") if hab_id else "global"
@@ -68,7 +68,7 @@ def species_trait(run: dict, species: str, trait: str, hab_id: str | None) -> go
         if hab_id
         else run["species_global"].get(species, [])
     )
-    days = [r["day"] for r in rows if r.get(trait) is not None]
+    days = [r["week"] for r in rows if r.get(trait) is not None]
     vals = [r[trait]  for r in rows if r.get(trait) is not None]
     color = _hab_border(run, hab_id)
     scope = run["hab_names"].get(hab_id, "global") if hab_id else "global"
@@ -89,7 +89,7 @@ def species_trait(run: dict, species: str, trait: str, hab_id: str | None) -> go
 
 def global_overview(run: dict) -> go.Figure:
     gs   = run["global_series"]
-    days = [r["day"] for r in gs]
+    days = [r["week"] for r in gs]
     pop  = [r["population"]    for r in gs]
     spc  = [r["species_count"] for r in gs]
 
@@ -122,26 +122,26 @@ def edge_migration(run: dict, src: str, tgt: str) -> go.Figure:
     all_fwd = run["migrations_by_edge"].get((src, tgt), [])
     all_rev = run["migrations_by_edge"].get((tgt, src), [])
 
-    fwd_by_day: dict[int, int] = {}
+    fwd_by_week: dict[int, int] = {}
     for m in all_fwd:
-        fwd_by_day[m["day"]] = fwd_by_day.get(m["day"], 0) + 1
-    rev_by_day: dict[int, int] = {}
+        fwd_by_week[m["week"]] = fwd_by_week.get(m["week"], 0) + 1
+    rev_by_week: dict[int, int] = {}
     for m in all_rev:
-        rev_by_day[m["day"]] = rev_by_day.get(m["day"], 0) + 1
+        rev_by_week[m["week"]] = rev_by_week.get(m["week"], 0) + 1
 
     src_name = run["hab_names"].get(src, src)
     tgt_name = run["hab_names"].get(tgt, tgt)
 
     fig = go.Figure()
-    if fwd_by_day:
+    if fwd_by_week:
         fig.add_trace(go.Scatter(
-            x=list(fwd_by_day.keys()), y=list(fwd_by_day.values()),
+            x=list(fwd_by_week.keys()), y=list(fwd_by_week.values()),
             name=f"{src_name}→{tgt_name}", mode="lines",
             line=dict(color="#3a7a3a", width=1.2),
         ))
-    if rev_by_day:
+    if rev_by_week:
         fig.add_trace(go.Scatter(
-            x=list(rev_by_day.keys()), y=list(rev_by_day.values()),
+            x=list(rev_by_week.keys()), y=list(rev_by_week.values()),
             name=f"{tgt_name}→{src_name}", mode="lines",
             line=dict(color="#7a5a3a", width=1.2, dash="dot"),
         ))

@@ -129,25 +129,25 @@ def make_app(run: dict) -> dash.Dash:
         Input("timeline-slider", "value"),
     )
     def update_graph(day: int):
-        return build_cyto_elements(run, day), f"DAY: {day:04d}"
+        return build_cyto_elements(run, day), f"WEEK: {day:04d}"
 
     # ── Step buttons ───────────────────────────────────────────────────────────
     @app.callback(
         Output("timeline-slider", "value"),
-        Input("prev-day-btn", "n_clicks"),
-        Input("next-day-btn", "n_clicks"),
+        Input("prev-week-btn", "n_clicks"),
+        Input("next-week-btn", "n_clicks"),
         State("timeline-slider", "value"),
         prevent_initial_call=True,
     )
-    def step_day(prev_n, next_n, day):
-        all_days = run["all_days"]
+    def step_week(prev_n, next_n, week):
+        all_weeks = run["all_weeks"]
         try:
-            idx = all_days.index(day)
+            idx = all_weeks.index(week)
         except ValueError:
-            idx = min(range(len(all_days)), key=lambda i: abs(all_days[i] - day))
+            idx = min(range(len(all_weeks)), key=lambda i: abs(all_weeks[i] - week))
         if "prev" in callback_context.triggered[0]["prop_id"]:
-            return all_days[max(0, idx - 1)]
-        return all_days[min(len(all_days) - 1, idx + 1)]
+            return all_weeks[max(0, idx - 1)]
+        return all_weeks[min(len(all_weeks) - 1, idx + 1)]
 
     # ── Capture graph taps into a store (decouples from element updates) ───────
     # When cytoscape elements are rebuilt (timeline drag), tapNodeData/tapEdgeData

@@ -17,14 +17,9 @@ from evolution_simulator.habitat import (
 def make_creature(seed: int, sex: str) -> Creature:
     """Create a sexually viable creature with controlled sex and seed."""
     rng = np.random.default_rng(seed)
-    genes = rng.standard_normal(GENE_DIMS)
-    sex_idx = DEFAULT_TRAIT_GENE_INDICES["sex_determination"]
-    genes[sex_idx] = 10.0 if sex == "female" else -10.0
-    # Force fast sexual viability
-    genes[DEFAULT_TRAIT_GENE_INDICES["weeks_to_sexual_viability"]] = -10.0
-    c = Creature(genes=genes)
+    c = Creature(genes=rng.standard_normal(GENE_DIMS))
+    c.sex = sex
     c.age = c.weeks_to_sexual_viability
-    assert c.sex == sex
     return c
 
 
@@ -36,18 +31,16 @@ def make_compatible_pair(base_seed: int = 0) -> tuple[Creature, Creature]:
     rng = np.random.default_rng(base_seed)
     base = rng.standard_normal(GENE_DIMS)
     base[DEFAULT_TRAIT_GENE_INDICES["selectivity"]] = -10.0             # low selectivity
-    base[DEFAULT_TRAIT_GENE_INDICES["weeks_to_sexual_viability"]] = -10.0
     base[DEFAULT_TRAIT_GENE_INDICES["reproduction_likelihood"]] = 10.0  # high fertility
 
-    male_genes = base.copy()
-    male_genes[DEFAULT_TRAIT_GENE_INDICES["sex_determination"]] = -10.0
-    female_genes = base.copy()
-    female_genes[DEFAULT_TRAIT_GENE_INDICES["sex_determination"]] = 10.0
-
-    male = Creature(genes=male_genes)
-    female = Creature(genes=female_genes)
+    male = Creature(genes=base.copy())
+    male.sex = "male"
     male.age = male.weeks_to_sexual_viability
+
+    female = Creature(genes=base.copy())
+    female.sex = "female"
     female.age = female.weeks_to_sexual_viability
+
     return male, female
 
 

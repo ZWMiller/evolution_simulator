@@ -345,23 +345,13 @@ class TestSimulateDay:
 
 def _make_opposite_sex_pair(genes: np.ndarray):
     """
-    Return (male, female) built from the same gene vector, with the
-    sex_determination loci forced so one is male and the other female.
-    Genes at all other loci are identical (cosine similarity ≈ 1.0).
+    Return (male, female) built from the same gene vector with sex set directly.
+    Genes at all loci are identical (cosine similarity = 1.0).
     """
-    from evolution_simulator.creature import DEFAULT_TRAIT_GENE_INDICES
-    sex_idx = DEFAULT_TRAIT_GENE_INDICES["sex_determination"]
-
-    male_genes = genes.copy()
-    male_genes[sex_idx] = -10.0   # sigmoid(-10) ≈ 0 → male
-
-    female_genes = genes.copy()
-    female_genes[sex_idx] = 10.0  # sigmoid(10) ≈ 1 → female
-
-    male = Creature(genes=male_genes)
-    female = Creature(genes=female_genes)
-    assert male.sex == "male"
-    assert female.sex == "female"
+    male = Creature(genes=genes.copy())
+    male.sex = "male"
+    female = Creature(genes=genes.copy())
+    female.sex = "female"
     return male, female
 
 
@@ -433,10 +423,10 @@ class TestIsCompatible:
     def test_same_sex_rejected(self):
         rng = np.random.default_rng(1)
         genes = rng.standard_normal(GENE_DIMS)
-        from evolution_simulator.creature import DEFAULT_TRAIT_GENE_INDICES
-        genes[DEFAULT_TRAIT_GENE_INDICES["sex_determination"]] = 10.0  # both female
         c1 = Creature(genes=genes.copy())
+        c1.sex = "female"
         c2 = Creature(genes=genes.copy())
+        c2.sex = "female"
         ok, _, reason = c1.is_compatible(c2)
         assert not ok
         assert reason == "same_sex"
@@ -458,19 +448,13 @@ class TestIsCompatible:
     def test_incompatible_genes_rejected(self):
         """Random unrelated creatures are unlikely to pass the 0.9 threshold."""
         rng = np.random.default_rng(55)
-        from evolution_simulator.creature import DEFAULT_TRAIT_GENE_INDICES
 
-        male_genes = rng.standard_normal(GENE_DIMS)
-        male_genes[DEFAULT_TRAIT_GENE_INDICES["sex_determination"]] = -10.0
-        male_genes[DEFAULT_TRAIT_GENE_INDICES["weeks_to_sexual_viability"]] = -10.0
-
-        female_genes = rng.standard_normal(GENE_DIMS)
-        female_genes[DEFAULT_TRAIT_GENE_INDICES["sex_determination"]] = 10.0
-        female_genes[DEFAULT_TRAIT_GENE_INDICES["weeks_to_sexual_viability"]] = -10.0
-
-        male = Creature(genes=male_genes)
-        female = Creature(genes=female_genes)
+        male = Creature(genes=rng.standard_normal(GENE_DIMS))
+        male.sex = "male"
         male.age = male.weeks_to_sexual_viability
+
+        female = Creature(genes=rng.standard_normal(GENE_DIMS))
+        female.sex = "female"
         female.age = female.weeks_to_sexual_viability
 
         ok, score, _ = male.is_compatible(female)
@@ -490,16 +474,13 @@ class TestReproduce:
     def test_incompatible_pair_returns_empty_list(self):
         """Two random, unrelated creatures should not be able to reproduce."""
         rng = np.random.default_rng(77)
-        from evolution_simulator.creature import DEFAULT_TRAIT_GENE_INDICES
 
-        male_genes = rng.standard_normal(GENE_DIMS)
-        male_genes[DEFAULT_TRAIT_GENE_INDICES["sex_determination"]] = -10.0
-        female_genes = rng.standard_normal(GENE_DIMS)
-        female_genes[DEFAULT_TRAIT_GENE_INDICES["sex_determination"]] = 10.0
-
-        male = Creature(genes=male_genes)
-        female = Creature(genes=female_genes)
+        male = Creature(genes=rng.standard_normal(GENE_DIMS))
+        male.sex = "male"
         male.age = male.weeks_to_sexual_viability
+
+        female = Creature(genes=rng.standard_normal(GENE_DIMS))
+        female.sex = "female"
         female.age = female.weeks_to_sexual_viability
 
         assert male.reproduce(female) == []

@@ -147,19 +147,19 @@ def _config(state: dict, run: dict, day: int) -> list:
 
 
 def _global(state: dict, run: dict, day: int) -> list:
-    d       = run["days_data"].get(day, {})
+    d       = run["weeks_data"].get(day, {})
     gs      = run["global_series"]
-    snapshot = next((r for r in reversed(gs) if r["day"] <= day), gs[0] if gs else {})
+    snapshot = next((r for r in reversed(gs) if r["week"] <= day), gs[0] if gs else {})
     summary = run["summary"]
 
     deaths_today = sum(
-        len(run["days_data"][day].get("habitats", {}).get(h, {}).get("deaths", []))
+        len(run["weeks_data"][day].get("habitats", {}).get(h, {}).get("deaths", []))
         for h in run["hab_ids"]
-        if day in run["days_data"]
+        if day in run["weeks_data"]
     )
     spec_so_far = [
         ev
-        for dn, evs in run["speciation_by_day"].items()
+        for dn, evs in run["speciation_by_week"].items()
         for ev in evs
         if dn <= day
     ]
@@ -172,7 +172,7 @@ def _global(state: dict, run: dict, day: int) -> list:
                                            marginBottom="10px")),
         _graph(figs.global_overview(run)),
         _section("SNAPSHOT", [
-            _kv("day",               day),
+            _kv("week",              day),
             _kv("global population", snapshot.get("population", 0)),
             _kv("living species",    snapshot.get("species_count", 0)),
             _kv("species ever",      summary["total_species_ever"]),
@@ -197,12 +197,12 @@ def _global(state: dict, run: dict, day: int) -> list:
     if recent:
         items.append(_section(f"RECENT SPECIATIONS (last {len(recent)})", [
             html.Div(
-                f"day {ev.get('day', ev_day):>5}  {ev['new_species']}  ← {ev['parent_species']}",
+                f"week {ev.get('week', ev_day):>4}  {ev['new_species']}  ← {ev['parent_species']}",
                 style=_s(color=DIMTEXT, fontSize="12px", marginBottom="3px",
                          fontFamily=FONT, whiteSpace="nowrap",
                          overflow="hidden", textOverflow="ellipsis"),
             )
-            for ev_day, evs in run["speciation_by_day"].items()
+            for ev_day, evs in run["speciation_by_week"].items()
             for ev in evs
             if ev_day <= day
         ][-10:]))
@@ -217,7 +217,7 @@ def _habitat(state: dict, run: dict, day: int) -> list:
     pop      = run["hab_pop"][hab_id].get(day, 0)
     _, border, text_c = HABITAT_COLORS.get(hab_type, ("#1a1a1a", "#4a4a4a", "#888888"))
 
-    d       = run["days_data"].get(day, {})
+    d       = run["weeks_data"].get(day, {})
     hab_log = d.get("habitats",     {}).get(hab_id, {})
     births  = hab_log.get("births",         [])
     deaths  = hab_log.get("deaths",         [])
@@ -278,18 +278,18 @@ def _species(state: dict, run: dict, day: int) -> list:
     if hab_scoped and hab_id:
         day_rows = [
             r for r in run["species_per_hab"].get(hab_id, {}).get(species, [])
-            if r["day"] == day
+            if r["week"] == day
         ]
     else:
-        day_rows = [r for r in run["species_global"].get(species, []) if r["day"] == day]
+        day_rows = [r for r in run["species_global"].get(species, []) if r["week"] == day]
 
     count  = day_rows[0]["count"] if day_rows else 0
     traits = day_rows[0] if day_rows else {}
 
     # Daily events
     births = migs_in = migs_out = []
-    if day in run["days_data"]:
-        d = run["days_data"][day]
+    if day in run["weeks_data"]:
+        d = run["weeks_data"][day]
         if hab_id:
             hl     = d.get("habitats", {}).get(hab_id, {})
             births = [b for b in hl.get("births",         []) if b.get("species") == species]
@@ -371,9 +371,9 @@ def _edge(state: dict, run: dict, day: int) -> list:
     src_name = run["hab_names"].get(src, src)
     tgt_name = run["hab_names"].get(tgt, tgt)
 
-    migs_fwd = [m for m in run["migrations_by_day"].get(day, [])
+    migs_fwd = [m for m in run["migrations_by_week"].get(day, [])
                 if m["from_habitat"] == src and m["to_habitat"] == tgt]
-    migs_rev = [m for m in run["migrations_by_day"].get(day, [])
+    migs_rev = [m for m in run["migrations_by_week"].get(day, [])
                 if m["from_habitat"] == tgt and m["to_habitat"] == src]
 
     back  = _back_button(state)
