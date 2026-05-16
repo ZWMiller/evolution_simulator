@@ -3,9 +3,9 @@ runner.py — stand-alone simulation entry point.
 
 Usage
 -----
-    python runner.py                          # use bundled default config
-    python runner.py path/to/my_config.toml  # use a custom config
-    python runner.py --days 100              # override the number of days
+    python runner.py                           # use bundled default config
+    python runner.py path/to/my_config.toml   # use a custom config
+    python runner.py --weeks 100              # override the number of weeks
 
 The script prints live progress to stdout and writes structured JSON logs to
 the output directory specified in the config (default: simulation_logs/).
@@ -35,10 +35,10 @@ Examples:
         help="Path to a TOML config file.  Defaults to the bundled simulation.toml.",
     )
     parser.add_argument(
-        "--days",
+        "--weeks",
         type=int,
         default=None,
-        help="Override the number of days specified in the config.",
+        help="Override the number of weeks specified in the config.",
     )
     args = parser.parse_args()
 
@@ -61,16 +61,16 @@ Examples:
 
     runner = SimulationRunner(config_path)
 
-    # Allow --days to override config without mutating the file
-    if args.days is not None:
-        runner.config["simulation"]["days"] = args.days
+    # Allow --weeks to override config without mutating the file
+    if args.weeks is not None:
+        runner.config["simulation"]["weeks"] = args.weeks
 
-    days = runner.config["simulation"]["days"]
+    weeks = runner.config["simulation"]["weeks"]
 
     print()
     print("  Evolution Simulator")
     print(f"  Config : {config_path}")
-    print(f"  Days   : {days}")
+    print(f"  Weeks  : {weeks}")
     print()
 
     log_dir = runner.setup()
@@ -82,44 +82,44 @@ Examples:
     total_pop = sum(h.population_size for h in runner.habitats.values())
     print(f"  Starting population : {total_pop}")
     print()
-    print(f"  {'Day':>6}  {'Pop':>7}  {'Species':>8}  {'Births':>7}  {'Deaths':>7}  {'Time/day':>9}")
+    print(f"  {'Week':>6}  {'Pop':>7}  {'Species':>8}  {'Births':>7}  {'Deaths':>7}  {'Time/wk':>9}")
     print(f"  {'─'*6}  {'─'*7}  {'─'*8}  {'─'*7}  {'─'*7}  {'─'*9}")
 
     total_births = 0
     total_deaths = 0
     extinct = False
 
-    for _ in range(days):
+    for _ in range(weeks):
         t0 = time.perf_counter()
-        day_log = runner.step()
+        week_log = runner.step()
         elapsed = time.perf_counter() - t0
 
-        day_births = sum(len(h["births"]) for h in day_log["habitats"].values())
-        day_deaths = sum(len(h["deaths"]) for h in day_log["habitats"].values())
-        total_births += day_births
-        total_deaths += day_deaths
+        week_births = sum(len(h["births"]) for h in week_log["habitats"].values())
+        week_deaths = sum(len(h["deaths"]) for h in week_log["habitats"].values())
+        total_births += week_births
+        total_deaths += week_deaths
 
-        # Print a summary row every 10 days (and always on day 1)
-        if runner.day == 1 or runner.day % 10 == 0 or runner.day == days:
+        # Print a summary row every 10 weeks (and always on week 1)
+        if runner.week == 1 or runner.week % 10 == 0 or runner.week == weeks:
             print(
-                f"  {runner.day:>6}  "
-                f"{day_log['global_population']:>7}  "
-                f"{day_log['global_species_count']:>8}  "
+                f"  {runner.week:>6}  "
+                f"{week_log['global_population']:>7}  "
+                f"{week_log['global_species_count']:>8}  "
                 f"{total_births:>7}  "
                 f"{total_deaths:>7}  "
                 f"{elapsed*1000:>7.1f}ms"
             )
 
-        if day_log["global_population"] == 0:
+        if week_log["global_population"] == 0:
             extinct = True
-            print(f"\n  !! Global extinction on day {runner.day} — halting early.")
+            print(f"\n  !! Global extinction on week {runner.week} — halting early.")
             break
 
     runner._write_summary(extinct=extinct)
 
     print()
     print("  ── Simulation complete ──────────────────────────────")
-    print(f"  Days simulated   : {runner.day}")
+    print(f"  Weeks simulated  : {runner.week}")
     print(f"  Outcome          : {'EXTINCTION' if extinct else 'completed'}")
     print(f"  Final population : {sum(h.population_size for h in runner.habitats.values())}")
     print(f"  Total species    : {runner.species_registry.species_count}")

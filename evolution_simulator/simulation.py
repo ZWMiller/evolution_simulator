@@ -8,26 +8,26 @@ Usage
 
     runner = SimulationRunner(Path("my_config.toml"))
     log_dir = runner.setup()   # initialise habitats, species, population
-    runner.run()               # simulate all days and write logs
+    runner.run()               # simulate all weeks and write logs
 
 Or step-by-step for custom control:
 
     runner.setup()
-    for day in range(100):
-        day_log = runner.step()   # returns the day's full log dict
+    for week in range(100):
+        week_log = runner.step()   # returns the week's full log dict
 
 Log layout
 ----------
     simulation_logs/
     └── YYYY-MM-DD_HH-MM-SS/
-        ├── config.toml        # copy of the config used for this run
-        ├── metadata.json      # habitat topology, seed, parameters
-        ├── day_00001.json     # per-day event log
-        ├── day_00002.json
+        ├── config.toml         # copy of the config used for this run
+        ├── metadata.json       # habitat topology, seed, parameters
+        ├── week_00001.json     # per-week event log
+        ├── week_00002.json
         ├── ...
-        └── summary.json      # final state, speciation history
+        └── summary.json       # final state, speciation history
 
-Each day_NNNNN.json contains every birth, death, mating attempt, migration,
+Each week_NNNNN.json contains every birth, death, mating attempt, migration,
 speciation event, and habitat isolation — enough to replay the simulation in
 a visualiser.
 """
@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 
 # Gene indices forced in founding genomes to bootstrap viable life-history traits.
 _SEX_GENE_INDICES: list[int] = DEFAULT_TRAIT_GENE_INDICES["sex_determination"]
-_MATURITY_GENE_INDICES: list[int] = DEFAULT_TRAIT_GENE_INDICES["days_to_sexual_viability"]
+_MATURITY_GENE_INDICES: list[int] = DEFAULT_TRAIT_GENE_INDICES["weeks_to_sexual_viability"]
 _GESTATION_GENE_INDICES: list[int] = DEFAULT_TRAIT_GENE_INDICES["reproduction_time"]
 
 
@@ -68,7 +68,7 @@ class SimulationRunner:
     config      : dict  – parsed TOML config
     habitats    : dict[str, Habitat]  – keyed by habitat id
     species_registry : SpeciesRegistry
-    day         : int   – current simulation day (0 before any steps)
+    week        : int   – current simulation week (0 before any steps)
     log_dir     : Path  – output directory for this run (set by setup())
     """
 
@@ -81,7 +81,7 @@ class SimulationRunner:
         self.habitats: dict[str, Habitat] = {}
         self.habitat_types: dict[str, str] = {}   # id → type name string
         self.species_registry: Optional[SpeciesRegistry] = None
-        self.day: int = 0
+        self.week: int = 0
         self.log_dir: Optional[Path] = None
 
     # ------------------------------------------------------------------
@@ -164,14 +164,14 @@ class SimulationRunner:
                     # can reproduce quickly and establish a next generation.  These
                     # loci are inherited by offspring, so the fast life-history
                     # traits propagate until mutation drifts them upward.
-                    genes[_MATURITY_GENE_INDICES] = -10.0   # min days_to_sexual_viability (~30d)
-                    genes[_GESTATION_GENE_INDICES] = -10.0  # min reproduction_time (~10d)
+                    genes[_MATURITY_GENE_INDICES] = -10.0   # min weeks_to_sexual_viability (~4w)
+                    genes[_GESTATION_GENE_INDICES] = -10.0  # min reproduction_time (~1w)
 
                     creature = Creature(genes=genes)
                     creature.species = species_name
                     # Start founding creatures at sexual maturity so mating can
                     # happen immediately without waiting out the maturity period.
-                    creature.age = creature.days_to_sexual_viability + 1
+                    creature.age = creature.weeks_to_sexual_viability + 1
                     hab.add_creature(creature)
 
         total_pop = sum(h.population_size for h in self.habitats.values())
@@ -189,41 +189,41 @@ class SimulationRunner:
 
     def run(self) -> None:
         """
-        Simulate all days specified in config, writing a log file per day.
+        Simulate all weeks specified in config, writing a log file per week.
 
         Halts early if the global population reaches zero (extinction), in
         which case summary.json records ``"extinct": true``.
         """
-        days = self.config["simulation"]["days"]
-        logger.info("Starting simulation: %d days", days)
+        weeks = self.config["simulation"]["weeks"]
+        logger.info("Starting simulation: %d weeks", weeks)
         extinct = False
-        for d in range(days):
+        for w in range(weeks):
             self.step()
             pop = sum(h.population_size for h in self.habitats.values())
             if pop == 0:
-                logger.info("Global extinction on day %d — halting early.", self.day)
+                logger.info("Global extinction on week %d — halting early.", self.week)
                 extinct = True
                 break
-            if (d + 1) % 50 == 0 or d == 0:
+            if (w + 1) % 50 == 0 or w == 0:
                 logger.info(
-                    "Day %d: population=%d, species=%d",
-                    self.day, pop, self.species_registry.species_count,
+                    "Week %d: population=%d, species=%d",
+                    self.week, pop, self.species_registry.species_count,
                 )
         self._write_summary(extinct=extinct)
         logger.info("Simulation complete. Logs in: %s", self.log_dir)
 
     def step(self) -> dict:
         """
-        Advance the simulation by one day.
+        Advance the simulation by one week.
 
-        1. Runs simulate_day() on every habitat.
+        1. Runs simulate_week() on every habitat.
         2. Applies all pending migrations (creatures move after all habitats
-           have been processed, so no creature is simulated twice in one day).
-        3. Builds and writes the day's JSON log.
+           have been processed, so no creature is simulated twice in one week).
+        3. Builds and writes the week's JSON log.
 
-        Returns the full day log dict.
+        Returns the full week log dict.
         """
-        self.day += 1
+        self.week += 1
         iso_prob = self.config["simulation"].get("isolation_probability", 0.001)
 
         habitat_results: dict[str, dict] = {}
@@ -232,7 +232,7 @@ class SimulationRunner:
         prev_speciation_count = len(self.species_registry.speciation_events)
 
         for hab_id, hab in self.habitats.items():
-            result = hab.simulate_day(
+            result = hab.simulate_week(
                 species_registry=self.species_registry,
                 isolation_probability=iso_prob,
             )
@@ -252,15 +252,15 @@ class SimulationRunner:
             })
 
         new_speciations = self.species_registry.speciation_events[prev_speciation_count:]
-        day_log = self._build_day_log(habitat_results, migration_log, new_speciations)
-        self._write_day_log(day_log)
-        return day_log
+        week_log = self._build_week_log(habitat_results, migration_log, new_speciations)
+        self._write_week_log(week_log)
+        return week_log
 
     # ------------------------------------------------------------------
     # Log construction
     # ------------------------------------------------------------------
 
-    def _build_day_log(
+    def _build_week_log(
         self,
         habitat_results: dict[str, dict],
         migration_log: list[dict],
@@ -325,7 +325,7 @@ class SimulationRunner:
             all_death_ids = result["deaths"] + result.get("predation_deaths", [])
             deaths_detail = []
             for cid in all_death_ids:
-                creature_log = result["day_results"].get(cid, {})
+                creature_log = result["week_results"].get(cid, {})
                 deaths_detail.append({
                     "creature_id": cid,
                     "cause": creature_log.get("cause_of_death"),
@@ -365,7 +365,7 @@ class SimulationRunner:
             }
 
         return {
-            "day": self.day,
+            "week": self.week,
             "timestamp": datetime.now().isoformat(),
             "global_population": total_pop,
             "global_species_count": self.species_registry.species_count,
@@ -381,17 +381,17 @@ class SimulationRunner:
     # File I/O
     # ------------------------------------------------------------------
 
-    def _write_day_log(self, day_log: dict) -> None:
-        path = self.log_dir / f"day_{self.day:05d}.json"
+    def _write_week_log(self, week_log: dict) -> None:
+        path = self.log_dir / f"week_{self.week:05d}.json"
         with open(path, "w") as fh:
-            json.dump(day_log, fh)
+            json.dump(week_log, fh)
 
     def _write_metadata(self) -> None:
         sim_cfg = self.config["simulation"]
         metadata = {
             "simulation_start": datetime.now().isoformat(),
             "parameters": {
-                "days": sim_cfg["days"],
+                "weeks": sim_cfg["weeks"],
                 "seed": sim_cfg.get("seed"),
                 "initial_species_per_habitat": sim_cfg.get("initial_species_per_habitat", 3),
                 "creatures_per_species": sim_cfg.get("creatures_per_species", 10),
@@ -416,7 +416,7 @@ class SimulationRunner:
     def _write_summary(self, extinct: bool = False) -> None:
         summary = {
             "simulation_end": datetime.now().isoformat(),
-            "days_simulated": self.day,
+            "weeks_simulated": self.week,
             "extinct": extinct,
             "final_population": sum(h.population_size for h in self.habitats.values()),
             "total_species_ever": self.species_registry.species_count,

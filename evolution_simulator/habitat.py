@@ -32,7 +32,7 @@ HABITAT_VECTOR_DIMS = 500
 # ranges (fecundity 1-8, metabolism 0.5-2.0, etc.) for interpretability.
 LOGGED_TRAITS: tuple[str, ...] = (
     # Reproduction
-    "fecundity", "reproduction_time", "days_to_sexual_viability",
+    "fecundity", "reproduction_time", "weeks_to_sexual_viability",
     "parental_investment", "reproduction_likelihood",
     # Survival / physiology
     "metabolism", "water_efficiency", "max_lifespan",
@@ -101,9 +101,9 @@ class Habitat:
     WATER_HYDRATION_COST : float
         Base hydration lost when no water is found
         (scaled by 1 - creature.water_efficiency).
-    DAILY_MIGRATION_BASE : float
+    WEEKLY_MIGRATION_BASE : float
         Multiplier applied to creature.migration_likelihood to get the actual
-        per-day migration probability.  Keeps average migration rare even when
+        per-week migration probability.  Keeps average migration rare even when
         the trait value is moderate.
     """
 
@@ -116,12 +116,12 @@ class Habitat:
     WATER_HYDRATION_COST: float = 0.25  # multiplied by (1 - creature.water_efficiency)
 
     # Raw migration_likelihood ∈ [0, 1] is multiplied by this so that a
-    # creature with an average trait (~0.5) has only a 0.5% daily chance of
+    # creature with an average trait (~0.5) has only a 0.5% weekly chance of
     # migrating — keeping populations stable while still allowing spread.
-    DAILY_MIGRATION_BASE: float = 0.01
+    WEEKLY_MIGRATION_BASE: float = 0.01
 
     # Density-dependent mortality parameters.
-    # Per-day death probability from crowding = PREDATION_ALPHA * N / POPULATION_SUPPORT,
+    # Per-week death probability from crowding = PREDATION_ALPHA * N / POPULATION_SUPPORT,
     # added to each creature's intrinsic base_predation_rate.  When N = POPULATION_SUPPORT
     # the density term equals PREDATION_ALPHA (~1% for default Forest).  Harsh habitats
     # use lower values of both, rewarding adaptation with reduced crowding pressure.
@@ -319,7 +319,7 @@ class Habitat:
 
     def food_likelihoods(self, creatures: list) -> np.ndarray:
         """
-        Per-creature daily food-finding probability via (cos θ + 1) / 2.
+        Per-creature weekly food-finding probability via (cos θ + 1) / 2.
 
         Shape (N,), values in [0, 1].  Uses the FOOD_GENE_INDICES subspace.
         """
@@ -331,7 +331,7 @@ class Habitat:
 
     def water_likelihoods(self, creatures: list) -> np.ndarray:
         """
-        Per-creature daily water-finding probability via (cos θ + 1) / 2.
+        Per-creature weekly water-finding probability via (cos θ + 1) / 2.
 
         Shape (N,), values in [0, 1].  Uses the WATER_GENE_INDICES subspace.
         """
@@ -345,21 +345,21 @@ class Habitat:
     # Daily simulation
     # ------------------------------------------------------------------
 
-    def simulate_day(
+    def simulate_week(
         self,
         species_registry=None,
         isolation_probability: float = 0.001,
     ) -> dict:
         """
-        Advance the habitat by one day.
+        Advance the habitat by one week.
 
         Processing order
         ----------------
         1. Compute food / water likelihoods for all living creatures (batched).
         2. Binomial resource draws — each creature either finds food/water or not.
         3. Update energy / hydration; mark starvation / dehydration / old-age deaths.
-        4. Advance each creature's internal day (aging, pregnancy timer).
-        5. Collect litters from females that reached term today.
+        4. Advance each creature's internal week (aging, pregnancy timer).
+        5. Collect litters from females that reached term this week.
         6. Apply density-dependent predation to survivors of step 3.
         7. Remove all dead creatures from the population.
         8. Migration: willing creatures move to a random passable neighbour.
@@ -370,14 +370,14 @@ class Habitat:
 
         Migration events are *returned* rather than applied directly so that the
         simulation runner can process all habitats before moving creatures,
-        avoiding double-simulation of migrants on the same day.
+        avoiding double-simulation of migrants on the same week.
 
         Returns
         -------
         dict
             "habitat_id"       : str
             "population"       : int   – alive count after processing
-            "day_results"      : dict[creature_id, day_log]
+            "week_results"     : dict[creature_id, week_log]
             "births"           : list[Creature]  – newborns added to this habitat
             "deaths"           : list[str]       – creature_ids killed by resource
                                                    stress or old age
@@ -399,7 +399,7 @@ class Habitat:
         food_found = np.random.random(len(alive)) < food_probs
         water_found = np.random.random(len(alive)) < water_probs
 
-        day_results: dict = {}
+        week_results: dict = {}
         deaths: list[str] = []
         newborns: list = []
 
@@ -428,12 +428,12 @@ class Habitat:
                     - self.WATER_HYDRATION_COST * (1.0 - creature.water_efficiency),
                 )
 
-            # --- Advance creature's day ---
-            # creature.simulate_day() handles starvation / dehydration checks
+            # --- Advance creature's week ---
+            # creature.simulate_week() handles starvation / dehydration checks
             # internally (energy/hydration were already updated above).
-            log = creature.simulate_day()
+            log = creature.simulate_week()
 
-            # --- Collect litter if pregnancy completed today ---
+            # --- Collect litter if pregnancy completed this week ---
             if "gave_birth" in log["events"] and creature._pending_offspring:
                 newborns.extend(creature._pending_offspring)
                 creature._pending_offspring = []
@@ -441,7 +441,7 @@ class Habitat:
             if not creature.is_alive:
                 deaths.append(creature.creature_id)
 
-            day_results[creature.creature_id] = log
+            week_results[creature.creature_id] = log
 
         # ------------------------------------------------------------------
         # 6. Density-dependent predation (applied to survivors of step 3)
@@ -458,7 +458,7 @@ class Habitat:
                 creature.is_alive = False
                 creature.cause_of_death = "predation"
                 predation_deaths.append(creature.creature_id)
-                day_results[creature.creature_id]["cause_of_death"] = "predation"
+                week_results[creature.creature_id]["cause_of_death"] = "predation"
 
         # ------------------------------------------------------------------
         # 7. Remove the dead
@@ -473,12 +473,12 @@ class Habitat:
         pending_migrations: list[tuple] = []
         passable = self.passable_neighbors()
         if passable:
-            daily_migration_base = self.DAILY_MIGRATION_BASE
+            weekly_migration_base = self.WEEKLY_MIGRATION_BASE
             for creature in list(self._creatures):
                 if not creature.is_alive:
                     continue
-                daily_prob = creature.migration_likelihood * daily_migration_base
-                if np.random.random() < daily_prob:
+                weekly_prob = creature.migration_likelihood * weekly_migration_base
+                if np.random.random() < weekly_prob:
                     destination = passable[np.random.randint(len(passable))]
                     self._creatures.discard(creature)
                     pending_migrations.append((creature, destination))
@@ -542,7 +542,7 @@ class Habitat:
         return {
             "habitat_id": self.habitat_id,
             "population": self.population_size,
-            "day_results": day_results,
+            "week_results": week_results,
             "births": newborns,
             "deaths": deaths,
             "predation_deaths": predation_deaths,

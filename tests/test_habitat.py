@@ -21,9 +21,9 @@ def make_creature(seed: int, sex: str) -> Creature:
     sex_idx = DEFAULT_TRAIT_GENE_INDICES["sex_determination"]
     genes[sex_idx] = 10.0 if sex == "female" else -10.0
     # Force fast sexual viability
-    genes[DEFAULT_TRAIT_GENE_INDICES["days_to_sexual_viability"]] = -10.0
+    genes[DEFAULT_TRAIT_GENE_INDICES["weeks_to_sexual_viability"]] = -10.0
     c = Creature(genes=genes)
-    c.age = c.days_to_sexual_viability
+    c.age = c.weeks_to_sexual_viability
     assert c.sex == sex
     return c
 
@@ -36,7 +36,7 @@ def make_compatible_pair(base_seed: int = 0) -> tuple[Creature, Creature]:
     rng = np.random.default_rng(base_seed)
     base = rng.standard_normal(GENE_DIMS)
     base[DEFAULT_TRAIT_GENE_INDICES["selectivity"]] = -10.0             # low selectivity
-    base[DEFAULT_TRAIT_GENE_INDICES["days_to_sexual_viability"]] = -10.0
+    base[DEFAULT_TRAIT_GENE_INDICES["weeks_to_sexual_viability"]] = -10.0
     base[DEFAULT_TRAIT_GENE_INDICES["reproduction_likelihood"]] = 10.0  # high fertility
 
     male_genes = base.copy()
@@ -46,8 +46,8 @@ def make_compatible_pair(base_seed: int = 0) -> tuple[Creature, Creature]:
 
     male = Creature(genes=male_genes)
     female = Creature(genes=female_genes)
-    male.age = male.days_to_sexual_viability
-    female.age = female.days_to_sexual_viability
+    male.age = male.weeks_to_sexual_viability
+    female.age = female.weeks_to_sexual_viability
     return male, female
 
 
@@ -322,33 +322,33 @@ class TestResourceLikelihoods:
 
 
 # ---------------------------------------------------------------------------
-# simulate_day — structure and basic behaviour
+# simulate_week — structure and basic behaviour
 # ---------------------------------------------------------------------------
 
 class TestSimulateDayStructure:
     def test_returns_expected_keys(self, populated_habitat):
-        result = populated_habitat.simulate_day()
-        assert {"habitat_id", "population", "day_results",
+        result = populated_habitat.simulate_week()
+        assert {"habitat_id", "population", "week_results",
                 "births", "deaths", "migrations", "isolations"} <= result.keys()
 
     def test_habitat_id_in_result(self, populated_habitat):
-        result = populated_habitat.simulate_day()
+        result = populated_habitat.simulate_week()
         assert result["habitat_id"] == populated_habitat.habitat_id
 
-    def test_day_results_keyed_by_creature_id(self, populated_habitat):
-        result = populated_habitat.simulate_day()
-        for cid in result["day_results"]:
+    def test_week_results_keyed_by_creature_id(self, populated_habitat):
+        result = populated_habitat.simulate_week()
+        for cid in result["week_results"]:
             assert isinstance(cid, str)
 
     def test_empty_habitat_runs_without_error(self, habitat):
-        result = habitat.simulate_day()
+        result = habitat.simulate_week()
         assert result["population"] == 0
         assert result["births"] == []
         assert result["deaths"] == []
         assert result["migrations"] == []
 
     def test_population_count_in_result(self, populated_habitat):
-        result = populated_habitat.simulate_day()
+        result = populated_habitat.simulate_week()
         assert result["population"] == populated_habitat.population_size
 
 
@@ -357,14 +357,14 @@ class TestSimulateDayAging:
         c = make_creature(seed=1, sex="male")
         habitat.add_creature(c)
         age_before = c.age
-        habitat.simulate_day()
+        habitat.simulate_week()
         assert c.age == age_before + 1
 
     def test_old_creature_dies(self, habitat):
         c = make_creature(seed=2, sex="female")
         c.age = c.max_lifespan - 1
         habitat.add_creature(c)
-        result = habitat.simulate_day()
+        result = habitat.simulate_week()
         assert c.creature_id in result["deaths"]
         assert not habitat.has_creature(c)
 
@@ -372,7 +372,7 @@ class TestSimulateDayAging:
         c = make_creature(seed=3, sex="male")
         c.age = c.max_lifespan - 1
         habitat.add_creature(c)
-        habitat.simulate_day()
+        habitat.simulate_week()
         assert not habitat.has_creature(c)
 
 
@@ -384,7 +384,7 @@ class TestSimulateDayResources:
         indices = habitat.FOOD_GENE_INDICES
         c.genes[indices] = -habitat.vector[indices]
         habitat.add_creature(c)
-        result = habitat.simulate_day()
+        result = habitat.simulate_week()
         # May die of starvation if food prob = 0 and energy drains to ≤ 0
         # We verify the mechanism works by checking energy ≤ 0 kills the creature
         # (energy was already 0, so any FOOD_ENERGY_COST push kills it)
@@ -400,7 +400,7 @@ class TestSimulateDayResources:
         habitat.add_creature(c)
 
         np.random.seed(0)
-        habitat.simulate_day()
+        habitat.simulate_week()
         # With p=1 food likelihood, food is always found
         # Energy should have increased (or stayed near 0.5 + gain)
         assert c.energy >= 0.5 or not c.is_alive  # creature either ate or died of age
@@ -418,13 +418,13 @@ class TestSimulateDayMigration:
         c.genes[DEFAULT_TRAIT_GENE_INDICES["migration_likelihood"]] = 100.0
         h1.add_creature(c)
 
-        # Override DAILY_MIGRATION_BASE to 1.0 so high trait → certain migration
-        original = Habitat.DAILY_MIGRATION_BASE
-        Habitat.DAILY_MIGRATION_BASE = 1.0
+        # Override WEEKLY_MIGRATION_BASE to 1.0 so high trait → certain migration
+        original = Habitat.WEEKLY_MIGRATION_BASE
+        Habitat.WEEKLY_MIGRATION_BASE = 1.0
         try:
-            result = h1.simulate_day()
+            result = h1.simulate_week()
         finally:
-            Habitat.DAILY_MIGRATION_BASE = original
+            Habitat.WEEKLY_MIGRATION_BASE = original
 
         migrations = result["migrations"]
         assert len(migrations) == 1
@@ -438,12 +438,12 @@ class TestSimulateDayMigration:
         c.genes[DEFAULT_TRAIT_GENE_INDICES["migration_likelihood"]] = 100.0
         habitat.add_creature(c)
 
-        original = Habitat.DAILY_MIGRATION_BASE
-        Habitat.DAILY_MIGRATION_BASE = 1.0
+        original = Habitat.WEEKLY_MIGRATION_BASE
+        Habitat.WEEKLY_MIGRATION_BASE = 1.0
         try:
-            result = habitat.simulate_day()
+            result = habitat.simulate_week()
         finally:
-            Habitat.DAILY_MIGRATION_BASE = original
+            Habitat.WEEKLY_MIGRATION_BASE = original
 
         assert result["migrations"] == []
         assert habitat.has_creature(c)
@@ -457,12 +457,12 @@ class TestSimulateDayMigration:
         c.genes[DEFAULT_TRAIT_GENE_INDICES["migration_likelihood"]] = 100.0
         h1.add_creature(c)
 
-        original = Habitat.DAILY_MIGRATION_BASE
-        Habitat.DAILY_MIGRATION_BASE = 1.0
+        original = Habitat.WEEKLY_MIGRATION_BASE
+        Habitat.WEEKLY_MIGRATION_BASE = 1.0
         try:
-            result = h1.simulate_day()
+            result = h1.simulate_week()
         finally:
-            Habitat.DAILY_MIGRATION_BASE = original
+            Habitat.WEEKLY_MIGRATION_BASE = original
 
         assert result["migrations"] == []
 
@@ -474,7 +474,7 @@ class TestSimulateDayMating:
         h.add_creature(male)
         h.add_creature(female)
 
-        h.simulate_day()
+        h.simulate_week()
         # After one day, compatible male and female should have mated
         assert female.is_pregnant or female._pending_offspring
 
@@ -491,9 +491,9 @@ class TestSimulateDayMating:
         assert len(litter) >= 1
 
         # Fast-forward pregnancy to one day before term
-        female.days_pregnant = female.reproduction_time - 1
+        female.weeks_pregnant = female.reproduction_time - 1
 
-        result = h.simulate_day()
+        result = h.simulate_week()
         assert len(result["births"]) >= 1
         for child in result["births"]:
             assert h.has_creature(child)
@@ -507,7 +507,7 @@ class TestPredation:
     def test_predation_deaths_key_in_result(self, habitat):
         c = make_creature(seed=10, sex="male")
         habitat.add_creature(c)
-        result = habitat.simulate_day()
+        result = habitat.simulate_week()
         assert "predation_deaths" in result
 
     def test_high_density_causes_predation(self):
@@ -523,7 +523,7 @@ class TestPredation:
         c.genes[DEFAULT_FOOD_GENE_INDICES] = hab.vector[DEFAULT_FOOD_GENE_INDICES]
         c.genes[DEFAULT_WATER_GENE_INDICES] = hab.vector[DEFAULT_WATER_GENE_INDICES]
         hab.add_creature(c)
-        result = hab.simulate_day()
+        result = hab.simulate_week()
         assert len(result["predation_deaths"]) >= 1
 
     def test_zero_density_no_predation_pressure(self):
@@ -538,7 +538,7 @@ class TestPredation:
         c.energy = 1.0
         c.hydration = 1.0
         hab.add_creature(c)
-        result = hab.simulate_day()
+        result = hab.simulate_week()
         assert result["predation_deaths"] == []
 
 

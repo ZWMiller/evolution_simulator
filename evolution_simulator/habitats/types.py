@@ -91,7 +91,7 @@ class TypedHabitat(Habitat):
 #   FOOD_ENERGY_COST     = 0.25  (× creature.metabolism)
 #   WATER_HYDRATION_GAIN = 0.30
 #   WATER_HYDRATION_COST = 0.40  (× (1 - creature.water_efficiency))
-#   DAILY_MIGRATION_BASE = 0.01
+#   WEEKLY_MIGRATION_BASE = 0.01
 #   PREDATION_ALPHA      = 0.010  (density term at N = POPULATION_SUPPORT)
 #   POPULATION_SUPPORT   = 400    (carrying capacity for density-dependent mortality)
 #
@@ -135,7 +135,7 @@ class Plains(TypedHabitat):
     """Open grassland. Easy movement; moderate resources."""
     TYPE_SEED = 1004
     TYPE_NAME = "Plains"
-    DAILY_MIGRATION_BASE: float = 0.015  # flat terrain aids dispersal
+    WEEKLY_MIGRATION_BASE: float = 0.015  # flat terrain aids dispersal
     PREDATION_ALPHA: float = 0.010
     POPULATION_SUPPORT: int = 500
 
@@ -158,7 +158,7 @@ class Ocean(TypedHabitat):
     WATER_HYDRATION_COST: float = 0.0    # surrounded by water
     WATER_HYDRATION_GAIN: float = 0.50
     FOOD_ENERGY_GAIN: float = 0.35
-    DAILY_MIGRATION_BASE: float = 0.02   # currents aid dispersal
+    WEEKLY_MIGRATION_BASE: float = 0.02   # currents aid dispersal
     PREDATION_ALPHA: float = 0.008
     POPULATION_SUPPORT: int = 300
 
@@ -190,7 +190,7 @@ class Alpine(TypedHabitat):
     TYPE_NAME = "Alpine"
     FOOD_ENERGY_GAIN: float = 0.18
     FOOD_ENERGY_COST: float = 0.24       # high-altitude exertion
-    DAILY_MIGRATION_BASE: float = 0.005  # rugged terrain limits movement
+    WEEKLY_MIGRATION_BASE: float = 0.005  # rugged terrain limits movement
     PREDATION_ALPHA: float = 0.002       # sparse population → low density pressure
     POPULATION_SUPPORT: int = 80
 
@@ -203,7 +203,7 @@ class Volcanic(TypedHabitat):
     FOOD_ENERGY_COST: float = 0.24
     WATER_HYDRATION_GAIN: float = 0.20
     WATER_HYDRATION_COST: float = 0.38
-    DAILY_MIGRATION_BASE: float = 0.005  # inhospitable terrain
+    WEEKLY_MIGRATION_BASE: float = 0.005  # inhospitable terrain
     PREDATION_ALPHA: float = 0.001
     POPULATION_SUPPORT: int = 50
 
@@ -214,7 +214,7 @@ class Cave(TypedHabitat):
     TYPE_NAME = "Cave"
     FOOD_ENERGY_GAIN: float = 0.15
     WATER_HYDRATION_GAIN: float = 0.30   # underground water sources
-    DAILY_MIGRATION_BASE: float = 0.003  # difficult to navigate
+    WEEKLY_MIGRATION_BASE: float = 0.003  # difficult to navigate
     PREDATION_ALPHA: float = 0.002
     POPULATION_SUPPORT: int = 80
 
@@ -236,7 +236,7 @@ class River(TypedHabitat):
     TYPE_NAME = "River"
     WATER_HYDRATION_GAIN: float = 0.45
     WATER_HYDRATION_COST: float = 0.0
-    DAILY_MIGRATION_BASE: float = 0.015  # currents aid movement
+    WEEKLY_MIGRATION_BASE: float = 0.015  # currents aid movement
     PREDATION_ALPHA: float = 0.010
     POPULATION_SUPPORT: int = 400
 
@@ -247,7 +247,7 @@ class Savanna(TypedHabitat):
     TYPE_NAME = "Savanna"
     FOOD_ENERGY_GAIN: float = 0.28
     WATER_HYDRATION_COST: float = 0.31
-    DAILY_MIGRATION_BASE: float = 0.012
+    WEEKLY_MIGRATION_BASE: float = 0.012
     PREDATION_ALPHA: float = 0.008
     POPULATION_SUPPORT: int = 350
 

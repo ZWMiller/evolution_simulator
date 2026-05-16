@@ -11,8 +11,8 @@
 
 [simulation]
 
-# Total number of days to simulate.
-days = 365
+# Total number of weeks to simulate.
+weeks = 200
 
 # Optional integer seed for full reproducibility.
 # Comment out (or remove) for a random seed each run.
@@ -45,7 +45,7 @@ creatures_per_species = 10
 # Larger values produce more initial diversity but risk mating failure.
 initial_genome_noise = 0.05
 
-# Per-link, per-day probability that an open migration route closes
+# Per-link, per-week probability that an open migration route closes
 # spontaneously (landslide, flood, lava flow, etc.).
 # Drives allopatric speciation by geographically isolating populations.
 isolation_probability = 0.001

@@ -93,9 +93,9 @@ class SpeciesRegistry:
            founder.species = name
 
     2. At each birth, assign_species() is called automatically by
-       Habitat.simulate_day() when a registry is passed:
+       Habitat.simulate_week() when a registry is passed:
 
-           result = habitat.simulate_day(species_registry=registry)
+           result = habitat.simulate_week(species_registry=registry)
 
        Or call manually:
 

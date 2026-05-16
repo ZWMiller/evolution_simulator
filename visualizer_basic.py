@@ -26,7 +26,7 @@ import plotly.express as px
 # ---------------------------------------------------------------------------
 
 ALL_TRAITS = [
-    "fecundity", "reproduction_time", "days_to_sexual_viability",
+    "fecundity", "reproduction_time", "weeks_to_sexual_viability",
     "parental_investment", "reproduction_likelihood", "metabolism",
     "water_efficiency", "max_lifespan", "disease_resistance", "immune_response",
     "stress_tolerance", "heat_tolerance", "cold_tolerance", "drought_tolerance",
@@ -49,9 +49,9 @@ def load_run(log_dir: Path) -> dict:
     with open(log_dir / "summary.json") as f:
         summary = json.load(f)
 
-    day_files = sorted(log_dir.glob("day_*.json"))
+    week_files = sorted(log_dir.glob("week_*.json"))
     days = []
-    for p in day_files:
+    for p in week_files:
         with open(p) as f:
             days.append(json.load(f))
 
@@ -70,17 +70,17 @@ def load_run(log_dir: Path) -> dict:
     speciation_events = []
 
     for d in days:
-        day_n = d["day"]
+        week_n = d["week"]
 
         global_series.append({
-            "day": day_n,
+            "week": week_n,
             "population": d["global_population"],
             "species_count": d["global_species_count"],
         })
 
         for ev in d.get("speciation_events", []):
             speciation_events.append({
-                "day": day_n,
+                "week": week_n,
                 "new_species": ev["new_species"],
                 "parent_species": ev["parent_species"],
             })
@@ -88,7 +88,7 @@ def load_run(log_dir: Path) -> dict:
         for hab_id in habitat_ids:
             hab_log = d.get("habitats", {}).get(hab_id, {})
             habitat_series.append({
-                "day": day_n,
+                "week": week_n,
                 "hab_id": hab_id,
                 "hab_name": habitat_names.get(hab_id, hab_id),
                 "population": hab_log.get("population", 0),
@@ -96,7 +96,7 @@ def load_run(log_dir: Path) -> dict:
 
         for sp_name, sp_data in d.get("species_stats", {}).items():
             row = {
-                "day": day_n,
+                "week": week_n,
                 "species": sp_name,
                 "total_count": sp_data["total_count"],
             }
@@ -107,7 +107,7 @@ def load_run(log_dir: Path) -> dict:
         for hab_id, hab_data in d.get("habitat_stats", {}).items():
             for sp_name, sp_data in hab_data.get("by_species", {}).items():
                 row = {
-                    "day": day_n,
+                    "week": week_n,
                     "hab_id": hab_id,
                     "hab_name": habitat_names.get(hab_id, hab_id),
                     "species": sp_name,
@@ -119,11 +119,11 @@ def load_run(log_dir: Path) -> dict:
                     row[t] = sp_data["mean_traits"].get(t)
                 species_per_hab.append(row)
 
-    last_data_day = max((r["day"] for r in species_global), default=1)
+    last_data_week = max((r["week"] for r in species_global), default=1)
 
-    # Per-trait global min/max across all days and species — used by the heatmap
+    # Per-trait global min/max across all weeks and species — used by the heatmap
     # so that each cell's color reflects absolute position in the trait's full
-    # historical range, not relative rank among species on a single day.
+    # historical range, not relative rank among species on a single week.
     trait_global_ranges: dict[str, tuple[float, float]] = {}
     for t in ALL_TRAITS:
         vals = [r[t] for r in species_global if r.get(t) is not None]
@@ -144,8 +144,8 @@ def load_run(log_dir: Path) -> dict:
         "species_global": species_global,
         "species_per_hab": species_per_hab,
         "speciation_events": speciation_events,
-        "days_simulated": summary["days_simulated"],
-        "last_data_day": last_data_day,
+        "weeks_simulated": summary["weeks_simulated"],
+        "last_data_week": last_data_week,
         "trait_global_ranges": trait_global_ranges,
         "extinct": summary["extinct"],
     }
@@ -159,12 +159,12 @@ def _speciation_shapes(events: list[dict], y0: float = 0, y1: float = 1, yref: s
     shapes, annotations = [], []
     for ev in events:
         shapes.append(dict(
-            type="line", x0=ev["day"], x1=ev["day"],
+            type="line", x0=ev["week"], x1=ev["week"],
             y0=y0, y1=y1, yref=yref,
             line=dict(color="rgba(150,150,150,0.4)", width=1, dash="dot"),
         ))
         annotations.append(dict(
-            x=ev["day"], y=y1, yref=yref, xanchor="left",
+            x=ev["week"], y=y1, yref=yref, xanchor="left",
             text=ev["new_species"], showarrow=False,
             font=dict(size=8, color="rgba(120,120,120,0.7)"),
             textangle=-60,
@@ -174,18 +174,18 @@ def _speciation_shapes(events: list[dict], y0: float = 0, y1: float = 1, yref: s
 
 def fig_global_overview(run: dict) -> go.Figure:
     gs = run["global_series"]
-    days = [r["day"] for r in gs]
+    weeks = [r["week"] for r in gs]
     pop = [r["population"] for r in gs]
     sp_count = [r["species_count"] for r in gs]
 
     fig = go.Figure()
     fig.add_trace(go.Scatter(
-        x=days, y=pop, name="Global Population",
+        x=weeks, y=pop, name="Global Population",
         line=dict(color="#2196F3", width=2),
         fill="tozeroy", fillcolor="rgba(33,150,243,0.1)",
     ))
     fig.add_trace(go.Scatter(
-        x=days, y=sp_count, name="Species Count",
+        x=weeks, y=sp_count, name="Species Count",
         line=dict(color="#FF9800", width=2, dash="dash"),
         yaxis="y2",
     ))
@@ -193,7 +193,7 @@ def fig_global_overview(run: dict) -> go.Figure:
     shapes, annotations = _speciation_shapes(run["speciation_events"])
     fig.update_layout(
         title="Global Population & Species Richness",
-        xaxis_title="Day",
+        xaxis_title="Week",
         yaxis=dict(title="Population", rangemode="tozero"),
         yaxis2=dict(title="Species Count", overlaying="y", side="right", rangemode="tozero"),
         hovermode="x unified",
@@ -211,15 +211,15 @@ def fig_habitat_population(run: dict) -> go.Figure:
     hab_names = run["habitat_names"]
     colors = px.colors.qualitative.Set2
 
-    by_hab: dict = {h: {"days": [], "pop": []} for h in hab_ids}
+    by_hab: dict = {h: {"weeks": [], "pop": []} for h in hab_ids}
     for r in hs:
-        by_hab[r["hab_id"]]["days"].append(r["day"])
+        by_hab[r["hab_id"]]["weeks"].append(r["week"])
         by_hab[r["hab_id"]]["pop"].append(r["population"])
 
     fig = go.Figure()
     for i, hid in enumerate(hab_ids):
         fig.add_trace(go.Scatter(
-            x=by_hab[hid]["days"],
+            x=by_hab[hid]["weeks"],
             y=by_hab[hid]["pop"],
             name=f'{hab_names[hid]} ({run["habitat_types"][hid]})',
             line=dict(color=colors[i % len(colors)], width=2),
@@ -230,7 +230,7 @@ def fig_habitat_population(run: dict) -> go.Figure:
     shapes, annotations = _speciation_shapes(run["speciation_events"])
     fig.update_layout(
         title="Population per Habitat (stacked)",
-        xaxis_title="Day",
+        xaxis_title="Week",
         yaxis_title="Population",
         hovermode="x unified",
         shapes=shapes,
@@ -250,8 +250,8 @@ def fig_species_population(run: dict, selected_species: list[str]) -> go.Figure:
             continue
         sp = r["species"]
         if sp not in by_sp:
-            by_sp[sp] = {"days": [], "count": []}
-        by_sp[sp]["days"].append(r["day"])
+            by_sp[sp] = {"weeks": [], "count": []}
+        by_sp[sp]["weeks"].append(r["week"])
         by_sp[sp]["count"].append(r["total_count"])
 
     colors = px.colors.qualitative.Plotly
@@ -260,14 +260,14 @@ def fig_species_population(run: dict, selected_species: list[str]) -> go.Figure:
         if sp not in by_sp:
             continue
         fig.add_trace(go.Scatter(
-            x=by_sp[sp]["days"], y=by_sp[sp]["count"],
+            x=by_sp[sp]["weeks"], y=by_sp[sp]["count"],
             name=sp, line=dict(color=colors[i % len(colors)], width=2),
         ))
 
     shapes, annotations = _speciation_shapes(run["speciation_events"])
     fig.update_layout(
         title="Species Population Over Time",
-        xaxis_title="Day",
+        xaxis_title="Week",
         yaxis_title="Population",
         hovermode="x unified",
         shapes=shapes,
@@ -289,8 +289,8 @@ def fig_species_trait(run: dict, selected_species: list[str], trait: str) -> go.
             continue
         sp = r["species"]
         if sp not in by_sp:
-            by_sp[sp] = {"days": [], "vals": []}
-        by_sp[sp]["days"].append(r["day"])
+            by_sp[sp] = {"weeks": [], "vals": []}
+        by_sp[sp]["weeks"].append(r["week"])
         by_sp[sp]["vals"].append(r[trait])
 
     colors = px.colors.qualitative.Plotly
@@ -299,13 +299,13 @@ def fig_species_trait(run: dict, selected_species: list[str], trait: str) -> go.
         if sp not in by_sp:
             continue
         fig.add_trace(go.Scatter(
-            x=by_sp[sp]["days"], y=by_sp[sp]["vals"],
+            x=by_sp[sp]["weeks"], y=by_sp[sp]["vals"],
             name=sp, line=dict(color=colors[i % len(colors)], width=2),
         ))
 
     fig.update_layout(
         title=f"Mean {trait.replace('_', ' ').title()} Over Time",
-        xaxis_title="Day",
+        xaxis_title="Week",
         yaxis_title=trait.replace("_", " ").title(),
         hovermode="x unified",
         margin=dict(t=40, b=40),
@@ -324,13 +324,13 @@ def fig_adaptation_by_habitat(run: dict, hab_id: str) -> go.Figure:
     for r in rows:
         sp = r["species"]
         if sp not in sp_food:
-            sp_food[sp] = {"days": [], "vals": []}
-            sp_water[sp] = {"days": [], "vals": []}
+            sp_food[sp] = {"weeks": [], "vals": []}
+            sp_water[sp] = {"weeks": [], "vals": []}
         if r.get("mean_food_prob") is not None:
-            sp_food[sp]["days"].append(r["day"])
+            sp_food[sp]["weeks"].append(r["week"])
             sp_food[sp]["vals"].append(r["mean_food_prob"])
         if r.get("mean_water_prob") is not None:
-            sp_water[sp]["days"].append(r["day"])
+            sp_water[sp]["weeks"].append(r["week"])
             sp_water[sp]["vals"].append(r["mean_water_prob"])
 
     colors = px.colors.qualitative.Plotly
@@ -340,13 +340,13 @@ def fig_adaptation_by_habitat(run: dict, hab_id: str) -> go.Figure:
     for i, sp in enumerate(species_list):
         color = colors[i % len(colors)]
         fig.add_trace(go.Scatter(
-            x=sp_food[sp]["days"], y=sp_food[sp]["vals"],
+            x=sp_food[sp]["weeks"], y=sp_food[sp]["vals"],
             name=f"{sp} (food)",
             line=dict(color=color, width=1.5),
             legendgroup=sp,
         ))
         fig.add_trace(go.Scatter(
-            x=sp_water[sp]["days"], y=sp_water[sp]["vals"],
+            x=sp_water[sp]["weeks"], y=sp_water[sp]["vals"],
             name=f"{sp} (water)",
             line=dict(color=color, width=1.5, dash="dot"),
             legendgroup=sp,
@@ -359,7 +359,7 @@ def fig_adaptation_by_habitat(run: dict, hab_id: str) -> go.Figure:
                   annotation_text="unadapted baseline (0.5)")
     fig.update_layout(
         title=f"Habitat Adaptation: {hab_name} ({hab_type})  — solid=food, dotted=water",
-        xaxis_title="Day",
+        xaxis_title="Week",
         yaxis=dict(title="Resource Discovery Probability", range=[0, 1]),
         hovermode="x unified",
         margin=dict(t=50, b=40),
@@ -367,11 +367,11 @@ def fig_adaptation_by_habitat(run: dict, hab_id: str) -> go.Figure:
     return fig
 
 
-def fig_rk_tradeoff(run: dict, day: int) -> go.Figure:
-    """Scatter of mean fecundity vs mean base_predation_rate at a given day."""
-    rows = [r for r in run["species_global"] if r["day"] == day]
+def fig_rk_tradeoff(run: dict, week: int) -> go.Figure:
+    """Scatter of mean fecundity vs mean base_predation_rate at a given week."""
+    rows = [r for r in run["species_global"] if r["week"] == week]
     if not rows:
-        return go.Figure().update_layout(title=f"No species data for day {day}")
+        return go.Figure().update_layout(title=f"No species data for week {week}")
 
     species = [r["species"] for r in rows]
     fecundity = [r.get("fecundity") or 0 for r in rows]
@@ -399,7 +399,7 @@ def fig_rk_tradeoff(run: dict, day: int) -> go.Figure:
         ),
     ))
     fig.update_layout(
-        title=f"r/K Tradeoff — Day {day}  (bubble size ∝ √population)",
+        title=f"r/K Tradeoff — Week {week}  (bubble size ∝ √population)",
         xaxis_title="Mean Fecundity",
         yaxis_title="Mean Base Predation Rate",
         margin=dict(t=50, b=40),
@@ -407,19 +407,19 @@ def fig_rk_tradeoff(run: dict, day: int) -> go.Figure:
     return fig
 
 
-def fig_trait_heatmap(run: dict, day: int, hab_id: str | None = None) -> go.Figure:
+def fig_trait_heatmap(run: dict, week: int, hab_id: str | None = None) -> go.Figure:
     """
-    Heatmap of mean trait values across all living species on a given day,
+    Heatmap of mean trait values across all living species on a given week,
     row-normalised so different-scale traits are visually comparable.
     """
     if hab_id:
         rows = [r for r in run["species_per_hab"]
-                if r["hab_id"] == hab_id and r["day"] == day]
+                if r["hab_id"] == hab_id and r["week"] == week]
     else:
-        rows = [r for r in run["species_global"] if r["day"] == day]
+        rows = [r for r in run["species_global"] if r["week"] == week]
 
     if not rows:
-        return go.Figure().update_layout(title=f"No species data for day {day}")
+        return go.Figure().update_layout(title=f"No species data for week {week}")
 
     species = [r["species"] for r in rows]
     ranges = run["trait_global_ranges"]
@@ -441,7 +441,7 @@ def fig_trait_heatmap(run: dict, day: int, hab_id: str | None = None) -> go.Figu
     ))
     title_suffix = f" in {run['habitat_names'].get(hab_id, hab_id)}" if hab_id else " (global)"
     fig.update_layout(
-        title=f"Trait snapshot — Day {day}{title_suffix}  (normalised to full-run range)",
+        title=f"Trait snapshot — Week {week}{title_suffix}  (normalised to full-run range)",
         xaxis=dict(tickangle=-45),
         height=900,
         margin=dict(t=60, l=180, b=120, r=40),
@@ -474,7 +474,7 @@ def build_layout(run: dict) -> html.Div:
                     style={"margin": "0 0 4px 0"}),
             html.Div([
                 html.Span(f"Habitats: {len(run['habitat_ids'])}  ·  "),
-                html.Span(f"Days: {run['days_simulated']}  ·  "),
+                html.Span(f"Weeks: {run['weeks_simulated']}  ·  "),
                 html.Span(f"Species ever: {summary['total_species_ever']}  ·  "),
                 html.Span(f"Speciations: {summary['total_speciation_events']}  ·  "),
                 html.Span("Status: "), extinct_badge,
@@ -538,16 +538,16 @@ def build_layout(run: dict) -> html.Div:
             # Tab 4: r/K Tradeoff
             dcc.Tab(label="r/K Tradeoff", value="rk", children=[
                 html.Div([
-                    html.Label(f"Day (1 – {run['days_simulated']}):",
+                    html.Label(f"Week (1 – {run['weeks_simulated']}):",
                                style={"fontWeight": "bold", "marginRight": 8}),
                     dcc.Slider(
-                        id="rk-day-slider",
-                        min=1, max=run["days_simulated"],
+                        id="rk-week-slider",
+                        min=1, max=run["weeks_simulated"],
                         step=1,
-                        value=min(32, run["days_simulated"]),
-                        marks={d: str(d) for d in
-                               range(0, run["days_simulated"] + 1,
-                                     max(1, run["days_simulated"] // 10))},
+                        value=min(32, run["weeks_simulated"]),
+                        marks={w: str(w) for w in
+                               range(0, run["weeks_simulated"] + 1,
+                                     max(1, run["weeks_simulated"] // 10))},
                         tooltip={"placement": "bottom", "always_visible": True},
                     ),
                 ], style={"padding": "12px 24px 0"}),
@@ -569,16 +569,16 @@ def build_layout(run: dict) -> html.Div:
                         ),
                     ], style={"marginBottom": 8}),
                     html.Div([
-                        html.Label(f"Day (1 – {run['last_data_day']}):",
+                        html.Label(f"Week (1 – {run['last_data_week']}):",
                                    style={"fontWeight": "bold", "marginRight": 8}),
                         dcc.Slider(
-                            id="heatmap-day-slider",
-                            min=1, max=run["last_data_day"],
+                            id="heatmap-week-slider",
+                            min=1, max=run["last_data_week"],
                             step=1,
-                            value=run["last_data_day"],
-                            marks={d: str(d) for d in
-                                   range(0, run["last_data_day"] + 1,
-                                         max(1, run["last_data_day"] // 10))},
+                            value=run["last_data_week"],
+                            marks={w: str(w) for w in
+                                   range(0, run["last_data_week"] + 1,
+                                         max(1, run["last_data_week"] // 10))},
                             tooltip={"placement": "bottom", "always_visible": True},
                         ),
                     ]),
@@ -616,19 +616,19 @@ def make_app(run: dict) -> dash.Dash:
 
     @app.callback(
         Output("fig-rk", "figure"),
-        Input("rk-day-slider", "value"),
+        Input("rk-week-slider", "value"),
     )
-    def update_rk(day):
-        return fig_rk_tradeoff(run, day)
+    def update_rk(week):
+        return fig_rk_tradeoff(run, week)
 
     @app.callback(
         Output("fig-heatmap", "figure"),
         Input("heatmap-scope", "value"),
-        Input("heatmap-day-slider", "value"),
+        Input("heatmap-week-slider", "value"),
     )
-    def update_heatmap(scope, day):
+    def update_heatmap(scope, week):
         hab_id = None if scope == "__global__" else scope
-        return fig_trait_heatmap(run, day, hab_id)
+        return fig_trait_heatmap(run, week, hab_id)
 
     return app
 
@@ -638,7 +638,7 @@ def make_app(run: dict) -> dash.Dash:
 # ---------------------------------------------------------------------------
 
 def _latest_run(base: Path) -> Path:
-    runs = sorted(base.glob("*/day_00001.json"))
+    runs = sorted(base.glob("*/week_00001.json"))
     if not runs:
         raise FileNotFoundError(f"No simulation run found under {base}")
     return runs[-1].parent
@@ -662,7 +662,7 @@ def main():
     print(f"Loading run from: {log_dir}", flush=True)
     run = load_run(log_dir)
     print(
-        f"  {run['days_simulated']} days  |  "
+        f"  {run['weeks_simulated']} weeks  |  "
         f"{run['summary']['total_species_ever']} species  |  "
         f"{'EXTINCT' if run['extinct'] else 'survived'}",
         flush=True,

@@ -44,7 +44,7 @@ DEFAULT_TRAIT_GENE_INDICES: dict[str, list[int]] = {
         316, 421, 450, 451,
     ],
     # age at which reproduction becomes possible
-    "days_to_sexual_viability": [
+    "weeks_to_sexual_viability": [
         2, 16, 27, 48, 131, 207, 212, 303, 317,
         422, 452, 453, 460,
     ],
@@ -286,7 +286,7 @@ class Creature:
     # Range (0, 1); species subclasses can override to tune selectivity.
     OWA_ALPHA: float = 0.6
 
-    # Scales the [0,1] base_predation_rate trait into a per-day probability.
+    # Scales the [0,1] base_predation_rate trait into a per-week probability.
     # This is an abstraction for all exogenous mortality not modelled explicitly:
     # being eaten by a predator, falling to a fatal injury, disease, extreme
     # weather events, etc.  Rather than simulate predator–prey interactions
@@ -337,7 +337,7 @@ class Creature:
 
         # Reproductive state
         self.is_pregnant: bool = False
-        self.days_pregnant: int = 0
+        self.weeks_pregnant: int = 0
         # Litter created at fertilisation; released into the population at term
         self._pending_offspring: list["Creature"] = []
 
@@ -397,13 +397,13 @@ class Creature:
 
     @property
     def reproduction_time(self) -> int:
-        """Days required to gestate / develop offspring (10 – 500)."""
-        return int(10 + 490 * self._compute_trait("reproduction_time"))
+        """Weeks required to gestate / develop offspring (1 – 52)."""
+        return int(1 + 51 * self._compute_trait("reproduction_time"))
 
     @property
-    def days_to_sexual_viability(self) -> int:
-        """Days before the creature can reproduce (30 – 1 000)."""
-        return int(30 + 970 * self._compute_trait("days_to_sexual_viability"))
+    def weeks_to_sexual_viability(self) -> int:
+        """Weeks before the creature can reproduce (4 – 100)."""
+        return int(4 + 96 * self._compute_trait("weeks_to_sexual_viability"))
 
     @property
     def parental_investment(self) -> float:
@@ -417,7 +417,7 @@ class Creature:
 
     @property
     def migration_likelihood(self) -> float:
-        """Daily probability of migrating to a new environment [0, 1]."""
+        """Weekly probability of migrating to a new environment [0, 1]."""
         return self._compute_trait("migration_likelihood")
 
     @property
@@ -472,7 +472,7 @@ class Creature:
 
     @property
     def metabolism(self) -> float:
-        """Daily resource consumption multiplier [0.5 – 2.0]."""
+        """Weekly resource consumption multiplier [0.5 – 2.0]."""
         return 0.5 + 1.5 * self._compute_trait("metabolism")
 
     @property
@@ -482,13 +482,13 @@ class Creature:
 
     @property
     def water_efficiency(self) -> float:
-        """Water-use efficiency [0, 1]; higher → needs less water per day."""
+        """Water-use efficiency [0, 1]; higher → needs less water per week."""
         return self._compute_trait("water_efficiency")
 
     @property
     def max_lifespan(self) -> int:
-        """Maximum lifespan in days (365 – 7 300 days, i.e. 1 – 20 years)."""
-        return int(365 + 6935 * self._compute_trait("lifespan_factor"))
+        """Maximum lifespan in weeks (40 – 400 weeks, i.e. ~1 – 8 years)."""
+        return int(40 + 360 * self._compute_trait("lifespan_factor"))
 
     @property
     def disease_resistance(self) -> float:
@@ -572,7 +572,7 @@ class Creature:
     @property
     def base_predation_rate(self) -> float:
         """
-        Intrinsic daily probability of death from exogenous causes [0, MAX_BASE_PREDATION_RATE].
+        Intrinsic per-week probability of death from exogenous causes [0, MAX_BASE_PREDATION_RATE].
 
         Encodes the creature's inherent vulnerability to all mortality sources not
         modelled explicitly — predation, accidents, disease outbreaks, etc. — rather
@@ -585,7 +585,7 @@ class Creature:
     @property
     def is_sexually_viable(self) -> bool:
         """True when the creature has reached reproductive age."""
-        return self.age >= self.days_to_sexual_viability
+        return self.age >= self.weeks_to_sexual_viability
 
     # ------------------------------------------------------------------
     # Lineage
@@ -720,7 +720,7 @@ class Creature:
 
         # Mark female as pregnant; store litter until term
         female.is_pregnant = True
-        female.days_pregnant = 0
+        female.weeks_pregnant = 0
         female._pending_offspring = litter
 
         return litter
@@ -729,9 +729,9 @@ class Creature:
     # Simulation
     # ------------------------------------------------------------------
 
-    def simulate_day(self, environment=None) -> dict:
+    def simulate_week(self, environment=None) -> dict:
         """
-        Advance the creature's internal state by one day.
+        Advance the creature's internal state by one week.
 
         Parameters
         ----------
@@ -743,7 +743,7 @@ class Creature:
         Returns
         -------
         dict
-            Day log with keys:
+            Week log with keys:
             - "creature_id"    : str
             - "age"            : int  (post-increment)
             - "is_alive"       : bool
@@ -751,19 +751,19 @@ class Creature:
             - "events"         : list[str]
         """
         if not self.is_alive:
-            return self._day_log(["creature is already dead"])
+            return self._week_log(["creature is already dead"])
 
         # --- Starvation / dehydration ---
         # Energy and hydration are set by the Habitat before this is called.
-        # Checking here also handles standalone simulate_day() use.
+        # Checking here also handles standalone simulate_week() use.
         if self.energy <= 0:
             self.is_alive = False
             self.cause_of_death = "starvation"
-            return self._day_log(["died of starvation"])
+            return self._week_log(["died of starvation"])
         if self.hydration <= 0:
             self.is_alive = False
             self.cause_of_death = "dehydration"
-            return self._day_log(["died of dehydration"])
+            return self._week_log(["died of dehydration"])
 
         self.age += 1
         events: list[str] = []
@@ -772,21 +772,21 @@ class Creature:
         if self.age >= self.max_lifespan:
             self.is_alive = False
             self.cause_of_death = "old_age"
-            events.append(f"died of old age at day {self.age}")
-            return self._day_log(events)
+            events.append(f"died of old age at week {self.age}")
+            return self._week_log(events)
 
         # --- Pregnancy progression ---
         if self.is_pregnant:
-            self.days_pregnant += 1
-            if self.days_pregnant >= self.reproduction_time:
+            self.weeks_pregnant += 1
+            if self.weeks_pregnant >= self.reproduction_time:
                 events.append("gave_birth")
                 self.is_pregnant = False
-                self.days_pregnant = 0
+                self.weeks_pregnant = 0
                 # _pending_offspring is collected by the Habitat and cleared there
 
-        return self._day_log(events)
+        return self._week_log(events)
 
-    def _day_log(self, events: list[str]) -> dict:
+    def _week_log(self, events: list[str]) -> dict:
         return {
             "creature_id": self.creature_id,
             "age": self.age,

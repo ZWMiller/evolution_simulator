@@ -113,13 +113,13 @@ class TestTraitProperties:
         assert 1.0 <= creature.fecundity <= 8.0
 
     def test_reproduction_time_range(self, creature):
-        assert 10 <= creature.reproduction_time <= 500
+        assert 1 <= creature.reproduction_time <= 52
 
-    def test_days_to_sexual_viability_range(self, creature):
-        assert 30 <= creature.days_to_sexual_viability <= 1000
+    def test_weeks_to_sexual_viability_range(self, creature):
+        assert 4 <= creature.weeks_to_sexual_viability <= 100
 
     def test_max_lifespan_range(self, creature):
-        assert 365 <= creature.max_lifespan <= 7300
+        assert 40 <= creature.max_lifespan <= 400
 
     def test_metabolism_range(self, creature):
         assert 0.5 <= creature.metabolism <= 2.0
@@ -238,7 +238,7 @@ class TestInitialState:
 
     def test_not_pregnant_initially(self, creature):
         assert creature.is_pregnant is False
-        assert creature.days_pregnant == 0
+        assert creature.weeks_pregnant == 0
 
     def test_full_resources_initially(self, creature):
         assert creature.energy == 1.0
@@ -259,63 +259,63 @@ class TestInitialState:
 
 
 # ---------------------------------------------------------------------------
-# simulate_day
+# simulate_week
 # ---------------------------------------------------------------------------
 
 class TestSimulateDay:
     def test_age_increments(self, creature):
-        creature.simulate_day()
+        creature.simulate_week()
         assert creature.age == 1
 
     def test_returns_dict_with_expected_keys(self, creature):
-        log = creature.simulate_day()
+        log = creature.simulate_week()
         assert {"creature_id", "age", "is_alive", "cause_of_death", "events"} <= log.keys()
 
     def test_log_creature_id_matches(self, creature):
-        log = creature.simulate_day()
+        log = creature.simulate_week()
         assert log["creature_id"] == creature.creature_id
 
     def test_simulate_multiple_days(self, creature):
         for _ in range(10):
-            creature.simulate_day()
+            creature.simulate_week()
         assert creature.age == 10
 
     def test_dead_creature_returns_immediately(self, creature):
         creature.is_alive = False
         creature.cause_of_death = "test"
-        log = creature.simulate_day()
+        log = creature.simulate_week()
         assert creature.age == 0  # age must not increment
         assert "already dead" in log["events"][0]
 
     def test_dies_at_max_lifespan(self, creature):
         creature.age = creature.max_lifespan - 1
-        log = creature.simulate_day()
+        log = creature.simulate_week()
         assert creature.is_alive is False
         assert creature.cause_of_death == "old_age"
         assert log["is_alive"] is False
 
     def test_pregnancy_progresses(self, creature):
         creature.is_pregnant = True
-        creature.days_pregnant = 0
-        creature.simulate_day()
-        assert creature.days_pregnant == 1
+        creature.weeks_pregnant = 0
+        creature.simulate_week()
+        assert creature.weeks_pregnant == 1
 
     def test_birth_occurs_at_term(self, creature):
         creature.is_pregnant = True
-        creature.days_pregnant = creature.reproduction_time - 1
-        log = creature.simulate_day()
+        creature.weeks_pregnant = creature.reproduction_time - 1
+        log = creature.simulate_week()
         assert "gave_birth" in log["events"]
         assert creature.is_pregnant is False
-        assert creature.days_pregnant == 0
+        assert creature.weeks_pregnant == 0
 
     def test_sexual_viability_by_age(self, creature):
         assert not creature.is_sexually_viable  # age 0
-        creature.age = creature.days_to_sexual_viability
+        creature.age = creature.weeks_to_sexual_viability
         assert creature.is_sexually_viable
 
     def test_starvation_kills_creature(self, creature):
         creature.energy = 0.0
-        log = creature.simulate_day()
+        log = creature.simulate_week()
         assert creature.is_alive is False
         assert creature.cause_of_death == "starvation"
         assert log["is_alive"] is False
@@ -323,19 +323,19 @@ class TestSimulateDay:
 
     def test_dehydration_kills_creature(self, creature):
         creature.hydration = 0.0
-        log = creature.simulate_day()
+        log = creature.simulate_week()
         assert creature.is_alive is False
         assert creature.cause_of_death == "dehydration"
         assert log["is_alive"] is False
 
     def test_starvation_does_not_increment_age(self, creature):
         creature.energy = 0.0
-        creature.simulate_day()
+        creature.simulate_week()
         assert creature.age == 0  # died before aging
 
     def test_healthy_creature_does_not_starve(self, creature):
         creature.energy = 1.0
-        creature.simulate_day()
+        creature.simulate_week()
         assert creature.is_alive is True
 
 
@@ -387,8 +387,8 @@ def compatible_pair():
     male, female = _make_opposite_sex_pair(base_genes)
 
     # Fast-forward past sexual viability
-    male.age = male.days_to_sexual_viability
-    female.age = female.days_to_sexual_viability
+    male.age = male.weeks_to_sexual_viability
+    female.age = female.weeks_to_sexual_viability
     return male, female
 
 
@@ -462,16 +462,16 @@ class TestIsCompatible:
 
         male_genes = rng.standard_normal(GENE_DIMS)
         male_genes[DEFAULT_TRAIT_GENE_INDICES["sex_determination"]] = -10.0
-        male_genes[DEFAULT_TRAIT_GENE_INDICES["days_to_sexual_viability"]] = -10.0
+        male_genes[DEFAULT_TRAIT_GENE_INDICES["weeks_to_sexual_viability"]] = -10.0
 
         female_genes = rng.standard_normal(GENE_DIMS)
         female_genes[DEFAULT_TRAIT_GENE_INDICES["sex_determination"]] = 10.0
-        female_genes[DEFAULT_TRAIT_GENE_INDICES["days_to_sexual_viability"]] = -10.0
+        female_genes[DEFAULT_TRAIT_GENE_INDICES["weeks_to_sexual_viability"]] = -10.0
 
         male = Creature(genes=male_genes)
         female = Creature(genes=female_genes)
-        male.age = male.days_to_sexual_viability
-        female.age = female.days_to_sexual_viability
+        male.age = male.weeks_to_sexual_viability
+        female.age = female.weeks_to_sexual_viability
 
         ok, score, _ = male.is_compatible(female)
         # Cosine similarity of random vectors is near 0, well below 0.9
@@ -499,8 +499,8 @@ class TestReproduce:
 
         male = Creature(genes=male_genes)
         female = Creature(genes=female_genes)
-        male.age = male.days_to_sexual_viability
-        female.age = female.days_to_sexual_viability
+        male.age = male.weeks_to_sexual_viability
+        female.age = female.weeks_to_sexual_viability
 
         assert male.reproduce(female) == []
 
@@ -562,7 +562,7 @@ class TestReproduce:
         assert not female.is_pregnant
         male.reproduce(female)
         assert female.is_pregnant
-        assert female.days_pregnant == 0
+        assert female.weeks_pregnant == 0
 
     def test_pending_offspring_stored_on_female(self, compatible_pair):
         male, female = compatible_pair
@@ -687,10 +687,10 @@ class TestSpeciesSubclass:
         # Base creature uses many indices, so it won't be as extreme
         assert fb.fecundity != base.fecundity
 
-    def test_subclass_inherits_simulate_day(self):
+    def test_subclass_inherits_simulate_week(self):
         class SlowCreature(Creature):
             TRAIT_GENE_INDICES = DEFAULT_TRAIT_GENE_INDICES
 
         c = SlowCreature()
-        log = c.simulate_day()
+        log = c.simulate_week()
         assert log["age"] == 1

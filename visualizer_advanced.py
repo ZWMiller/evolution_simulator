@@ -31,7 +31,7 @@ def main() -> None:
 
     run = load_run(log_dir)
     print(
-        f"  {run['days_simulated']} days  |  "
+        f"  {run['weeks_simulated']} weeks  |  "
         f"{run['summary']['total_species_ever']} species  |  "
         f"{'EXTINCT' if run['extinct'] else 'alive'}",
         flush=True,
