@@ -122,6 +122,7 @@ class SimulationRunner:
                 habitat_id=inst["id"],
                 name=inst.get("name", inst["id"]),
                 instance_seed=inst.get("seed"),
+                population_support=inst.get("population_support"),
             )
             self.habitats[inst["id"]] = hab
             self.habitat_types[inst["id"]] = inst["type"]

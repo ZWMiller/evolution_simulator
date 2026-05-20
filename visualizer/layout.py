@@ -14,27 +14,21 @@ from visualizer.network import build_cyto_elements, CYTO_STYLESHEET
 from visualizer.style import BG, PANEL_BG, BORDER, TEXT, DIMTEXT, BRIGHT, FONT
 
 
-_MODE_BTN_BASE = dict(
-    background="none",
-    fontFamily=FONT,
-    fontSize="11px",
-    letterSpacing="0.12em",
-    cursor="pointer",
-    padding="4px 12px",
-    borderRadius="2px",
-)
-
-
 def _mode_btn(label: str, mode: str, active: bool = False) -> html.Button:
     return html.Button(
         label,
         id={"type": "mode-btn", "mode": mode},
         n_clicks=0,
         style=dict(
-            **_MODE_BTN_BASE,
+            background="#1a2a1a" if active else "none",
+            fontFamily=FONT,
+            fontSize="11px",
+            letterSpacing="0.12em",
+            cursor="pointer",
+            padding="4px 12px",
+            borderRadius="2px",
             border=f"1px solid {'#3a7a3a' if active else BORDER}",
             color=BRIGHT if active else DIMTEXT,
-            background="#1a2a1a" if active else "none",
         ),
     )
 

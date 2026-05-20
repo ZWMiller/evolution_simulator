@@ -299,7 +299,7 @@ class Creature:
     # Minimum cosine-similarity score (on [-1, 1] scale) required for mating.
     # The selectivity trait can raise this up toward 1.0.
     # Override in subclasses to tune how permissive mating is for a species.
-    COMPATIBILITY_FLOOR: float = 0.9
+    COMPATIBILITY_FLOOR: float = 0.7
 
     def __init__(
         self,
@@ -328,8 +328,10 @@ class Creature:
         self.is_alive: bool = True
         self.cause_of_death: Optional[str] = None
 
-        # Sex is fixed at birth from the gene vector (heritable)
-        self.sex: str = "female" if self._compute_trait("sex_determination") >= 0.5 else "male"
+        # Sex is fixed at birth from a single raw gene (heritable, no OWA bias).
+        # A raw N(0,1) gene gives exactly 50/50 male/female for random populations.
+        _sex_locus = self.TRAIT_GENE_INDICES["sex_determination"][0]
+        self.sex: str = "female" if self.genes[_sex_locus] >= 0 else "male"
 
         # Species is inherited from the first parent; "unknown" for founders.
         # The SpeciesRegistry validates this at birth and triggers a speciation
@@ -398,13 +400,13 @@ class Creature:
 
     @property
     def reproduction_time(self) -> int:
-        """Weeks required to gestate / develop offspring (1 – 52)."""
-        return int(1 + 51 * self._compute_trait("reproduction_time"))
+        """Weeks required to gestate / develop offspring (1 – 20)."""
+        return int(1 + 19 * self._compute_trait("reproduction_time"))
 
     @property
     def weeks_to_sexual_viability(self) -> int:
-        """Weeks before the creature can reproduce (4 – 100)."""
-        return int(4 + 96 * self._compute_trait("weeks_to_sexual_viability"))
+        """Weeks before the creature can reproduce (4 – 50)."""
+        return int(4 + 46 * self._compute_trait("weeks_to_sexual_viability"))
 
     @property
     def parental_investment(self) -> float:
@@ -662,8 +664,10 @@ class Creature:
             return False, 0.0, "female_already_pregnant"
 
         score = self.compatibility_score(other)
-        # Each partner contributes half of the selectivity pressure
-        threshold = self.COMPATIBILITY_FLOOR + (1 - self.COMPATIBILITY_FLOOR) * (
+        # selectivity trait raises the threshold above COMPATIBILITY_FLOOR by at most 0.15.
+        # Using a fixed cap (rather than scaling by 1-FLOOR) prevents OWA bias from
+        # pushing the threshold so high that same-species creatures can't mate.
+        threshold = self.COMPATIBILITY_FLOOR + 0.15 * (
             (self.selectivity + other.selectivity) / 2
         )
         if score < threshold:

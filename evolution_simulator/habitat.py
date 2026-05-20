@@ -133,6 +133,7 @@ class Habitat:
         vector: Optional[np.ndarray] = None,
         name: Optional[str] = None,
         habitat_id: Optional[str] = None,
+        population_support: Optional[int] = None,
     ):
         """
         Parameters
@@ -157,6 +158,8 @@ class Habitat:
 
         self.name: Optional[str] = name
         self.habitat_id: str = habitat_id or str(uuid.uuid4())
+        if population_support is not None:
+            self.POPULATION_SUPPORT = population_support
 
         # Population stored as a set for O(1) membership operations
         self._creatures: set = set()
