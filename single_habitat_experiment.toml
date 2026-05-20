@@ -20,7 +20,7 @@ founding_habitat_bias       = 0.30   # 30% aligned to forest vector → ~65% ini
 isolation_probability       = 0.0    # no routes to sever (isolated by design)
 
 [species]
-threshold = 0.75
+threshold = 0.60
 
 [habitats]
 connections = []   # no connections — fully isolated

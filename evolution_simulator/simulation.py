@@ -78,6 +78,7 @@ class SimulationRunner:
         self.species_registry: Optional[SpeciesRegistry] = None
         self.week: int = 0
         self.log_dir: Optional[Path] = None
+        self._total_hybridization_events: int = 0
 
     # ------------------------------------------------------------------
     # Setup
@@ -260,6 +261,12 @@ class SimulationRunner:
         new_speciations = self.species_registry.speciation_events[prev_speciation_count:]
         for ev in new_speciations:
             ev["week"] = self.week
+
+        for result in habitat_results.values():
+            for ev in result.get("mating_events", []):
+                if "hybridization" in ev:
+                    self._total_hybridization_events += 1
+
         week_log = self._build_week_log(habitat_results, migration_log, new_speciations)
         self._write_week_log(week_log)
         return week_log
@@ -436,6 +443,7 @@ class SimulationRunner:
             "final_population": sum(h.population_size for h in self.habitats.values()),
             "total_species_ever": self.species_registry.species_count,
             "total_speciation_events": len(self.species_registry.speciation_events),
+            "total_hybridization_events": self._total_hybridization_events,
             "all_speciation_events": self.species_registry.speciation_events,
             "final_species_distribution": {
                 hab_id: dict(Counter(c.species for c in hab.alive_creatures))
