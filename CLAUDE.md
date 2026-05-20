@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Active Work
+
+`TODO.md` in the repo root tracks open tasks across machines. Check it at the start of a session to see what's in progress or queued up, and update it when tasks are completed or new ones are identified.
+
 ## Commands
 
 ```bash
