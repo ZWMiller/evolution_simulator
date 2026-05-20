@@ -591,3 +591,73 @@ class TestRepr:
     def test_repr_shows_population(self, populated_habitat):
         r = repr(populated_habitat)
         assert str(populated_habitat.population_size) in r
+
+
+# ---------------------------------------------------------------------------
+# Hybridization logging
+# ---------------------------------------------------------------------------
+
+class TestHybridizationLogging:
+    def _run_mating(self, male, female):
+        """Place a pair in a habitat, run one week, return mating events."""
+        h = Habitat()
+        male.energy = 1.0
+        male.hydration = 1.0
+        female.energy = 1.0
+        female.hydration = 1.0
+        h.add_creature(male)
+        h.add_creature(female)
+        return h.simulate_week()["mating_events"]
+
+    def test_same_species_fertilized_has_no_hybridization_key(self):
+        male, female = make_compatible_pair(base_seed=10)
+        male.species = "Alpha"
+        female.species = "Alpha"
+        events = self._run_mating(male, female)
+        fertilized = [ev for ev in events if ev["fertilized"]]
+        assert len(fertilized) >= 1
+        for ev in fertilized:
+            assert "hybridization" not in ev
+
+    def test_cross_species_fertilized_has_hybridization_key(self):
+        male, female = make_compatible_pair(base_seed=11)
+        male.species = "Alpha"
+        female.species = "Beta"
+        events = self._run_mating(male, female)
+        fertilized = [ev for ev in events if ev["fertilized"]]
+        assert len(fertilized) >= 1
+        hybrids = [ev for ev in fertilized if "hybridization" in ev]
+        assert len(hybrids) >= 1
+
+    def test_hybridization_records_correct_species_names(self):
+        male, female = make_compatible_pair(base_seed=12)
+        male.species = "Crimson Elk"
+        female.species = "Pale Rabbit"
+        events = self._run_mating(male, female)
+        hybrids = [ev for ev in events if ev.get("hybridization")]
+        assert len(hybrids) >= 1
+        hyb = hybrids[0]["hybridization"]
+        assert hyb["male_species"] == "Crimson Elk"
+        assert hyb["female_species"] == "Pale Rabbit"
+
+    def test_failed_mating_has_no_hybridization_key(self):
+        """Incompatible cross-species pair: compatible=False → no hybridization key."""
+        rng = np.random.default_rng(77)
+        base = rng.standard_normal(GENE_DIMS)
+        male = Creature(genes=base.copy())
+        male.sex = "male"
+        male.age = male.weeks_to_sexual_viability
+        male.species = "Alpha"
+
+        # Anti-align compatibility genes so the score is ~-1 (well below floor)
+        female = Creature(genes=base.copy())
+        compat_idx = DEFAULT_TRAIT_GENE_INDICES["compatibility_genes"]
+        female.genes[compat_idx] = -base[compat_idx]
+        female._trait_cache.clear()
+        female.sex = "female"
+        female.age = female.weeks_to_sexual_viability
+        female.species = "Beta"
+
+        events = self._run_mating(male, female)
+        for ev in events:
+            assert "hybridization" not in ev

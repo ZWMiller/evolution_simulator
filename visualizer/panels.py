@@ -157,6 +157,7 @@ def _global(state: dict, run: dict, day: int) -> list:
         for h in run["hab_ids"]
         if day in run["weeks_data"]
     )
+    hybrids_today = len(run.get("hybridization_by_week", {}).get(day, []))
     spec_so_far = [
         ev
         for dn, evs in run["speciation_by_week"].items()
@@ -178,6 +179,7 @@ def _global(state: dict, run: dict, day: int) -> list:
             _kv("species ever",      summary["total_species_ever"]),
             _kv("speciations",       len(spec_so_far)),
             _kv("deaths today",      deaths_today),
+            _kv("hybridizations",    hybrids_today),
             _kv("status",            "EXTINCT" if run["extinct"] else "alive"),
         ]),
     ]
@@ -223,6 +225,7 @@ def _habitat(state: dict, run: dict, day: int) -> list:
     deaths  = hab_log.get("deaths",         [])
     migs    = hab_log.get("migrations_out", [])
     isos    = hab_log.get("isolations",     [])
+    hybrids = [ev for ev in hab_log.get("mating_events", []) if "hybridization" in ev]
     sp_dist = hab_log.get("species_distribution", {})
 
     conns = [
@@ -244,10 +247,11 @@ def _habitat(state: dict, run: dict, day: int) -> list:
             _kv("population",   pop),
             _kv("species",      len([s for s, c in sp_dist.items() if c > 0])),
             _kv("connected to", ", ".join(run["hab_names"].get(c, c) for c in conns)),
-            _kv("births today", len(births)),
-            _kv("deaths today", len(deaths)),
-            _kv("migrants out", len(migs)),
-            _kv("isolations",   len(isos)),
+            _kv("births today",    len(births)),
+            _kv("deaths today",    len(deaths)),
+            _kv("migrants out",    len(migs)),
+            _kv("isolations",      len(isos)),
+            _kv("hybridizations",  len(hybrids)),
         ]),
     ]
 

@@ -110,7 +110,13 @@ class Habitat:
     FOOD_GENE_INDICES: list[int] = DEFAULT_FOOD_GENE_INDICES
     WATER_GENE_INDICES: list[int] = DEFAULT_WATER_GENE_INDICES
 
-    FOOD_ENERGY_GAIN: float = 0.30
+    # Initial viability study (481 LHS trials, not extensive): stable outcomes
+    # rose from ~14% at low gain (0.10–0.22) to ~22% at high gain (0.35–0.60);
+    # estimated viable range 0.35–0.60.
+    FOOD_ENERGY_GAIN: float = 0.47
+    # Initial viability study (481 LHS trials, not extensive): stable outcomes
+    # peaked at ~28% at low cost (0.05–0.14) and dropped to ~8% above 0.32;
+    # estimated viable range 0.05–0.22.
     FOOD_ENERGY_COST: float = 0.15   # multiplied by creature.metabolism
     WATER_HYDRATION_GAIN: float = 0.30
     WATER_HYDRATION_COST: float = 0.25  # multiplied by (1 - creature.water_efficiency)
@@ -523,6 +529,11 @@ class Habitat:
                     event["fertilized"] = True
                     event["litter_size"] = len(litter)
                     event["offspring_ids"] = [c.creature_id for c in litter]
+                    if male.species != female.species:
+                        event["hybridization"] = {
+                            "male_species": male.species,
+                            "female_species": female.species,
+                        }
                 else:
                     event["reason"] = "infertile"
             else:

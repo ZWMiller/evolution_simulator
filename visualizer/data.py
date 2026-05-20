@@ -41,9 +41,10 @@ def load_run(log_dir: Path) -> dict:
     hab_pop:       dict[str, dict[int, int]]          = {h: {} for h in hab_ids}
     species_global: dict[str, list[dict]]             = {}
     species_per_hab: dict[str, dict[str, list[dict]]] = {h: {} for h in hab_ids}
-    migrations_by_week:  dict[int, list[dict]]         = {}
-    migrations_by_edge: dict[tuple, list[dict]]       = {}
-    speciation_by_week:  dict[int, list[dict]]         = {}
+    migrations_by_week:    dict[int, list[dict]]         = {}
+    migrations_by_edge:   dict[tuple, list[dict]]       = {}
+    speciation_by_week:   dict[int, list[dict]]         = {}
+    hybridization_by_week: dict[int, list[dict]]        = {}
 
     # creature_births: creature_id → {week, species, parents, sex, generation, hab_id}
     creature_births: dict[str, dict] = {}
@@ -104,6 +105,13 @@ def load_run(log_dir: Path) -> dict:
             migrations_by_edge.setdefault(key, []).append({**m, "week": week_n})
 
         speciation_by_week[week_n] = d.get("speciation_events", [])
+
+        hybrids = []
+        for hab_id in hab_ids:
+            for ev in d.get("habitats", {}).get(hab_id, {}).get("mating_events", []):
+                if "hybridization" in ev:
+                    hybrids.append({**ev["hybridization"], "hab_id": hab_id})
+        hybridization_by_week[week_n] = hybrids
 
         # Index births for family tree
         for hab_id in hab_ids:
@@ -184,9 +192,10 @@ def load_run(log_dir: Path) -> dict:
         "hab_pop":                 hab_pop,
         "species_global":          species_global,
         "species_per_hab":         species_per_hab,
-        "migrations_by_week":      migrations_by_week,
+        "migrations_by_week":       migrations_by_week,
         "migrations_by_edge":      migrations_by_edge,
         "speciation_by_week":      speciation_by_week,
+        "hybridization_by_week":   hybridization_by_week,
         "creature_births":         creature_births,
         "creature_children":       creature_children,
         "species_lineage":         species_lineage,

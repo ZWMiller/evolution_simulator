@@ -18,6 +18,14 @@ weeks = 200
 # Comment out (or remove) for a random seed each run.
 seed = 42
 
+# Bias applied when generating founding genomes toward the habitat's
+# characteristic center vector.  0.0 = fully random (no alignment),
+# 1.0 = perfectly aligned with the habitat center.
+# Initial viability study (481 LHS trials, not extensive): extinction rate was
+# ~58% below 0.23 (creatures too misaligned to survive) and dropped to ~0%
+# above 0.46; estimated viable range 0.30–0.85.
+founding_habitat_bias = 0.55
+
 # Directory where per-run output folders will be created.
 # Each run creates a timestamped subfolder:  output_dir/YYYY-MM-DD_HH-MM-SS/
 output_dir = "simulation_logs"
@@ -43,12 +51,17 @@ creatures_per_species = 10
 # Noise (std dev) applied per-locus around the founding genome.
 # Keep ≤ 0.1 to ensure intra-species compatibility (cosine sim ≥ 0.9).
 # Larger values produce more initial diversity but risk mating failure.
-initial_genome_noise = 0.05
+# Initial viability study (481 LHS trials, not extensive): stable outcomes
+# rose from ~11% at low noise (0.01–0.05) to ~22% at high noise (0.12–0.15).
+initial_genome_noise = 0.12
 
 # Per-link, per-week probability that an open migration route closes
 # spontaneously (landslide, flood, lava flow, etc.).
 # Drives allopatric speciation by geographically isolating populations.
-isolation_probability = 0.001
+# Initial viability study (481 LHS trials, not extensive): stable outcomes
+# improved from ~16% at low values (0.000–0.003) to ~21% at high values
+# (0.007–0.010); estimated viable range 0.006–0.010.
+isolation_probability = 0.008
 
 
 [species]
@@ -57,8 +70,11 @@ isolation_probability = 0.001
 # existing species if its similarity to that progenitor meets this threshold.
 # Counterintuitively, LOWER = less speciation (wider species neighbourhoods),
 # HIGHER = more speciation (newborns must be very close to a progenitor).
-# Default 0.75 produces speciation on timescales of ~25 generations.
-threshold = 0.75
+# Initial viability study (481 LHS trials, not extensive): stable outcomes
+# peaked at ~27% for thresholds 0.40–0.54 and collapsed to ~2% above 0.83,
+# where runaway speciation (thousands of species) dominated; estimated viable
+# range 0.45–0.75.
+threshold = 0.60
 
 
 # ---------------------------------------------------------------------------
