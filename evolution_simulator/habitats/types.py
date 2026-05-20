@@ -67,6 +67,7 @@ class TypedHabitat(Habitat):
         name=None,
         instance_seed=None,
         instance_noise: float = _INSTANCE_NOISE,
+        population_support: int = None,
     ):
         inst_rng = np.random.default_rng(instance_seed)
         noise = inst_rng.standard_normal(HABITAT_VECTOR_DIMS) * instance_noise
@@ -76,6 +77,7 @@ class TypedHabitat(Habitat):
             vector=vector,
             habitat_id=habitat_id,
             name=name or self.TYPE_NAME,
+            population_support=population_support,
         )
 
     @property

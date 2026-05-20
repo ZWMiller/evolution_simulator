@@ -328,6 +328,19 @@ def _species(state: dict, run: dict, day: int) -> list:
         _graph(figs.species_population(run, species, hab_id if hab_scoped else None)),
     ]))
 
+    # Resource adaptation (food/water probability) — habitat-scoped only
+    if hab_scoped and hab_id:
+        items.append(_section("RESOURCE ADAPTATION", [
+            _graph(figs.resource_probability(run, species, hab_id)),
+        ]))
+
+    # Generation vs adaptation chart
+    items.append(_section("GENERATION vs ADAPTATION", [
+        _graph(figs.generation_adaptation(
+            run, species, hab_id if hab_scoped else None
+        )),
+    ]))
+
     # Trait evolution — buttons + optional chart
     items.append(_section("TRAIT EVOLUTION", [
         html.Div(

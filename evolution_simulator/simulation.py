@@ -122,6 +122,7 @@ class SimulationRunner:
                 habitat_id=inst["id"],
                 name=inst.get("name", inst["id"]),
                 instance_seed=inst.get("seed"),
+                population_support=inst.get("population_support"),
             )
             self.habitats[inst["id"]] = hab
             self.habitat_types[inst["id"]] = inst["type"]
@@ -133,8 +134,15 @@ class SimulationRunner:
         global_n_species = sim_cfg.get("initial_species_per_habitat", 3)
         global_n_per_species = sim_cfg.get("creatures_per_species", 10)
         genome_noise = sim_cfg.get("initial_genome_noise", 0.05)
+        # Bias (0–1): 0 = pure random genome, 1 = fully aligned to habitat vector.
+        # A small bias (0.3) raises initial food/water probability from ~50% to ~65%
+        # so the founding population survives the first generation with random metabolism.
+        # Descendants still need to evolve; the bias only closes the viability gap.
+        habitat_bias = sim_cfg.get("founding_habitat_bias", 0.0)
         seed = sim_cfg.get("seed", None)
         rng = np.random.default_rng(seed)
+
+        self._founders_by_hab: dict[str, list[dict]] = {hid: [] for hid in self.habitats}
 
         for hab_id, hab in self.habitats.items():
             inst_cfg = self._habitat_instance_config(hab_id)
@@ -142,7 +150,15 @@ class SimulationRunner:
             n_per = inst_cfg.get("creatures_per_species", global_n_per_species)
 
             for sp_idx in range(n_species):
-                founding_genes = rng.standard_normal(GENE_DIMS)
+                random_genes = rng.standard_normal(GENE_DIMS)
+                if habitat_bias > 0.0:
+                    # Mix random genes with a scaled habitat direction so creatures
+                    # start partially aligned to local resources.
+                    hab_dir = hab.vector / (np.linalg.norm(hab.vector) + 1e-10)
+                    hab_scaled = hab_dir * np.sqrt(GENE_DIMS)
+                    founding_genes = (1.0 - habitat_bias) * random_genes + habitat_bias * hab_scaled
+                else:
+                    founding_genes = random_genes
                 species_name = self.species_registry.register_founding_species(
                     founding_genes
                 )
@@ -157,6 +173,12 @@ class SimulationRunner:
                     # Start at sexual maturity so mating begins on week 1.
                     creature.age = creature.weeks_to_sexual_viability + 1
                     hab.add_creature(creature)
+                    self._founders_by_hab[hab_id].append({
+                        "creature_id": creature.creature_id,
+                        "species": species_name,
+                        "sex": creature.sex,
+                        "generation": 0,
+                    })
 
         total_pop = sum(h.population_size for h in self.habitats.values())
         logger.info(
@@ -236,6 +258,8 @@ class SimulationRunner:
             })
 
         new_speciations = self.species_registry.speciation_events[prev_speciation_count:]
+        for ev in new_speciations:
+            ev["week"] = self.week
         week_log = self._build_week_log(habitat_results, migration_log, new_speciations)
         self._write_week_log(week_log)
         return week_log
@@ -266,6 +290,7 @@ class SimulationRunner:
         sp_total: dict[str, int] = {}
         sp_hab_counts: dict[str, dict[str, int]] = {}
         sp_trait_sums: dict[str, dict[str, float]] = {}
+        sp_generation_sums: dict[str, float] = {}
 
         for hab_id, hab in self.habitats.items():
             stats = hab.compute_stats()
@@ -281,16 +306,19 @@ class SimulationRunner:
                     sp_total[sp_name] = 0
                     sp_hab_counts[sp_name] = {}
                     sp_trait_sums[sp_name] = {t: 0.0 for t in LOGGED_TRAITS}
+                    sp_generation_sums[sp_name] = 0.0
                 sp_total[sp_name] += n
                 sp_hab_counts[sp_name][hab_id] = n
                 for t in LOGGED_TRAITS:
                     sp_trait_sums[sp_name][t] += sp_data["mean_traits"][t] * n
+                sp_generation_sums[sp_name] += sp_data.get("mean_generation", 0.0) * n
 
         species_stats: dict = {}
         for sp_name, n in sp_total.items():
             species_stats[sp_name] = {
                 "total_count": n,
                 "habitat_counts": sp_hab_counts[sp_name],
+                "mean_generation": round(sp_generation_sums[sp_name] / n, 2),
                 "mean_traits": {
                     t: round(sp_trait_sums[sp_name][t] / n, 4)
                     for t in LOGGED_TRAITS
@@ -321,6 +349,7 @@ class SimulationRunner:
                     "creature_id": c.creature_id,
                     "species": c.species,
                     "sex": c.sex,
+                    "generation": c.generation,
                     "parents": [p.creature_id for p in c.parents] if c.parents else [],
                 }
                 for c in result["births"]
@@ -393,6 +422,8 @@ class SimulationRunner:
                 for inst in self.config["habitats"]["instances"]
             ],
             "connections": self.config["habitats"].get("connections", []),
+            "founding_species": self.species_registry.all_species,
+            "founders_by_hab": getattr(self, "_founders_by_hab", {}),
         }
         with open(self.log_dir / "metadata.json", "w") as fh:
             json.dump(metadata, fh, indent=2)
