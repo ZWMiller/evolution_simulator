@@ -133,6 +133,11 @@ class SimulationRunner:
         global_n_species = sim_cfg.get("initial_species_per_habitat", 3)
         global_n_per_species = sim_cfg.get("creatures_per_species", 10)
         genome_noise = sim_cfg.get("initial_genome_noise", 0.05)
+        # Bias (0–1): 0 = pure random genome, 1 = fully aligned to habitat vector.
+        # A small bias (0.3) raises initial food/water probability from ~50% to ~65%
+        # so the founding population survives the first generation with random metabolism.
+        # Descendants still need to evolve; the bias only closes the viability gap.
+        habitat_bias = sim_cfg.get("founding_habitat_bias", 0.0)
         seed = sim_cfg.get("seed", None)
         rng = np.random.default_rng(seed)
 
@@ -144,7 +149,15 @@ class SimulationRunner:
             n_per = inst_cfg.get("creatures_per_species", global_n_per_species)
 
             for sp_idx in range(n_species):
-                founding_genes = rng.standard_normal(GENE_DIMS)
+                random_genes = rng.standard_normal(GENE_DIMS)
+                if habitat_bias > 0.0:
+                    # Mix random genes with a scaled habitat direction so creatures
+                    # start partially aligned to local resources.
+                    hab_dir = hab.vector / (np.linalg.norm(hab.vector) + 1e-10)
+                    hab_scaled = hab_dir * np.sqrt(GENE_DIMS)
+                    founding_genes = (1.0 - habitat_bias) * random_genes + habitat_bias * hab_scaled
+                else:
+                    founding_genes = random_genes
                 species_name = self.species_registry.register_founding_species(
                     founding_genes
                 )

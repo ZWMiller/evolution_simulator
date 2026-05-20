@@ -1,0 +1,32 @@
+# single_habitat_experiment.toml
+#
+# One species in one isolated Forest habitat — no migration, no connections.
+# Designed to cleanly measure:
+#   - Whether generations improve food/water adaptation over time
+#   - Family tree structure (no mixing from migrants)
+#   - Whether spontaneous speciation occurs through genetic drift alone
+#
+# Run for 1000 weeks.
+
+[simulation]
+weeks      = 1000
+seed       = 42
+output_dir = "simulation_logs"
+
+initial_species_per_habitat = 1
+creatures_per_species       = 80     # 40F + 40M
+initial_genome_noise        = 0.10   # enough per-creature variation for natural selection
+founding_habitat_bias       = 0.30   # 30% aligned to forest vector → ~65% initial food prob
+isolation_probability       = 0.0    # no routes to sever (isolated by design)
+
+[species]
+threshold = 0.75
+
+[habitats]
+connections = []   # no connections — fully isolated
+
+[[habitats.instances]]
+id   = "forest"
+type = "Forest"
+seed = 1
+name = "Isolated Forest"
