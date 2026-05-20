@@ -45,7 +45,22 @@ def load_run(log_dir: Path) -> dict:
     migrations_by_edge: dict[tuple, list[dict]]       = {}
     speciation_by_week:  dict[int, list[dict]]         = {}
 
+    # creature_births: creature_id → {week, species, parents, sex, generation, hab_id}
+    creature_births: dict[str, dict] = {}
+
     from visualizer.style import ALL_TRAITS  # avoid circular at module level
+
+    # Seed creature_births with founders from metadata (generation 0)
+    for hab_id, founders in metadata.get("founders_by_hab", {}).items():
+        for f in founders:
+            creature_births[f["creature_id"]] = {
+                "week": 0,
+                "species": f["species"],
+                "parents": [],
+                "sex": f["sex"],
+                "generation": 0,
+                "hab_id": hab_id,
+            }
 
     for week_n in all_weeks:
         d = weeks_data[week_n]
@@ -62,17 +77,22 @@ def load_run(log_dir: Path) -> dict:
             hab_pop[hab_id][week_n] = hab_log.get("population", 0)
 
         for sp, sp_data in d.get("species_stats", {}).items():
-            row: dict = {"week": week_n, "count": sp_data["total_count"]}
+            row: dict = {
+                "week": week_n,
+                "count": sp_data["total_count"],
+                "mean_generation": sp_data.get("mean_generation"),
+            }
             row.update(sp_data.get("mean_traits", {}))
             species_global.setdefault(sp, []).append(row)
 
         for hab_id, hab_data in d.get("habitat_stats", {}).items():
             for sp, sp_data in hab_data.get("by_species", {}).items():
                 row = {
-                    "week":            week_n,
-                    "count":           sp_data["count"],
-                    "mean_food_prob":  sp_data.get("mean_food_prob"),
-                    "mean_water_prob": sp_data.get("mean_water_prob"),
+                    "week":             week_n,
+                    "count":            sp_data["count"],
+                    "mean_food_prob":   sp_data.get("mean_food_prob"),
+                    "mean_water_prob":  sp_data.get("mean_water_prob"),
+                    "mean_generation":  sp_data.get("mean_generation"),
                 }
                 row.update(sp_data.get("mean_traits", {}))
                 species_per_hab.setdefault(hab_id, {}).setdefault(sp, []).append(row)
@@ -85,31 +105,95 @@ def load_run(log_dir: Path) -> dict:
 
         speciation_by_week[week_n] = d.get("speciation_events", [])
 
+        # Index births for family tree
+        for hab_id in hab_ids:
+            hab_log = d.get("habitats", {}).get(hab_id, {})
+            for birth in hab_log.get("births", []):
+                creature_births[birth["creature_id"]] = {
+                    "week": week_n,
+                    "species": birth["species"],
+                    "parents": birth.get("parents", []),
+                    "sex": birth.get("sex", "?"),
+                    "generation": birth.get("generation", 1),
+                    "hab_id": hab_id,
+                }
+
+    # ── Species lineage (for phylogeny) ───────────────────────────────────────
+    # Infer founding species: any species not created by a speciation event
+    speciated_species = {
+        ev["new_species"]
+        for evs in speciation_by_week.values()
+        for ev in evs
+    }
+    # Prefer explicit metadata list; fall back to inference
+    founding_species: list[str] = metadata.get(
+        "founding_species",
+        [sp for sp in all_species if sp not in speciated_species],
+    )
+
+    species_lineage: dict[str, dict] = {}
+    for sp in founding_species:
+        species_lineage[sp] = {"parent": None, "week": 0, "children": []}
+
+    for week_n, events in sorted(speciation_by_week.items()):
+        for ev in events:
+            new_sp = ev["new_species"]
+            parent_sp = ev.get("parent_species")
+            species_lineage[new_sp] = {
+                "parent": parent_sp,
+                "week": week_n,
+                "creature_id": ev.get("creature_id"),
+                "children": [],
+            }
+            if parent_sp and parent_sp in species_lineage:
+                species_lineage[parent_sp]["children"].append(new_sp)
+
+    # Ensure any species without lineage info is treated as a root
+    for sp in all_species:
+        if sp not in species_lineage:
+            species_lineage[sp] = {"parent": None, "week": 0, "children": []}
+
+    # Reverse parent→children index (for descendant traversal in family tree)
+    creature_children: dict[str, list[str]] = {}
+    for cid, cdata in creature_births.items():
+        for parent_id in cdata.get("parents", []):
+            creature_children.setdefault(parent_id, []).append(cid)
+
+    # Peak population per species (across all weeks)
+    species_peak_population: dict[str, int] = {
+        sp: max((r["count"] for r in rows), default=0)
+        for sp, rows in species_global.items()
+    }
+
     node_positions = _spring_layout(hab_ids, connections)
 
     return {
-        "run_id":              log_dir.name,
-        "metadata":            metadata,
-        "summary":             summary,
-        "config_text":         config_text,
-        "config_name":         config_name,
-        "hab_ids":             hab_ids,
-        "hab_names":           hab_names,
-        "hab_types":           hab_types,
-        "connections":         connections,
-        "all_weeks":            all_weeks,
-        "all_species":         sorted(all_species),
-        "weeks_data":           weeks_data,
-        "global_series":       global_series,
-        "hab_pop":             hab_pop,
-        "species_global":      species_global,
-        "species_per_hab":     species_per_hab,
-        "migrations_by_week":   migrations_by_week,
-        "migrations_by_edge":  migrations_by_edge,
-        "speciation_by_week":   speciation_by_week,
-        "node_positions":      node_positions,
-        "weeks_simulated":     summary["weeks_simulated"],
-        "extinct":             summary["extinct"],
+        "run_id":                  log_dir.name,
+        "metadata":                metadata,
+        "summary":                 summary,
+        "config_text":             config_text,
+        "config_name":             config_name,
+        "hab_ids":                 hab_ids,
+        "hab_names":               hab_names,
+        "hab_types":               hab_types,
+        "connections":             connections,
+        "all_weeks":               all_weeks,
+        "all_species":             sorted(all_species),
+        "weeks_data":              weeks_data,
+        "global_series":           global_series,
+        "hab_pop":                 hab_pop,
+        "species_global":          species_global,
+        "species_per_hab":         species_per_hab,
+        "migrations_by_week":      migrations_by_week,
+        "migrations_by_edge":      migrations_by_edge,
+        "speciation_by_week":      speciation_by_week,
+        "creature_births":         creature_births,
+        "creature_children":       creature_children,
+        "species_lineage":         species_lineage,
+        "species_peak_population": species_peak_population,
+        "node_positions":          node_positions,
+        "weeks_simulated":         summary["weeks_simulated"],
+        "extinct":                 summary["extinct"],
     }
 
 

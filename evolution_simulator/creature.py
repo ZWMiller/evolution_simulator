@@ -318,6 +318,7 @@ class Creature:
 
         self.creature_id: str = creature_id if creature_id is not None else str(uuid.uuid4())
         self.parents: list["Creature"] = parents if parents is not None else []
+        self.generation: int = (max(p.generation for p in self.parents) + 1) if self.parents else 0
 
         # Must be initialised before any property access (sex determination calls _compute_trait)
         self._trait_cache: dict[str, float] = {}

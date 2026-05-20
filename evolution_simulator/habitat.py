@@ -605,6 +605,7 @@ class Habitat:
                 "count": n,
                 "mean_food_prob": round(float(np.mean(group_food[sp_name])), 4),
                 "mean_water_prob": round(float(np.mean(group_water[sp_name])), 4),
+                "mean_generation": round(sum(c.generation for c in creatures) / n, 2),
                 "mean_traits": mean_traits,
             }
 
