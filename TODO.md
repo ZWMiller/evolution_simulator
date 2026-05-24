@@ -22,6 +22,33 @@ matrix and computes all 34 traits in one vectorized pass.  `compute_stats` now
 uses this instead of N × 34 individual `getattr` calls.  Total runtime dropped
 from 37.7 s → 11.75 s (69% reduction, measured on default 200-week config).
 
+### Speciation still running away — needs discussion before redesign
+
+*** NEEDS SOBER DISCUSSION — design not settled ***
+
+Two-stage gate is not enough: the 30k-week multi-habitat run had ~2,150
+species by week 14,000 with only ~1,650 living creatures — more species than
+individuals.  The goal is to watch species-level adaptation emerge naturally,
+which is impossible if every generation of normal drift creates a new species.
+
+Root cause: comparing newborns to an ancient progenitor genome means ordinary
+drift eventually triggers speciation even when the whole population is still
+coherent and interbreeding.
+
+Open design question: how should speciation actually be detected?  Options
+discussed but not decided:
+- Compare to current living centroid instead of ancient progenitor (but does
+  that mean the goalposts move forever and we never declare a new species?).
+- Compare current centroid to centroid N generations ago — detect when the
+  lineage has changed enough to be incompatible with its past self (anagenesis,
+  but is that really speciation or just evolution?).
+- Ground speciation in reproductive isolation: a new species only when a
+  sub-population can no longer interbreed with the main group.  Mating
+  compatibility is already computed in the simulation.
+
+Needs a clear decision on what the simulation is trying to model before
+touching the code.
+
 ### Fix runaway speciation (PLANNING_TEMP.md Phase 3 — DONE)
 
 Two-stage speciation implemented in `species.py`.  Diverged newborns now enter
