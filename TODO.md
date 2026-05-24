@@ -57,6 +57,34 @@ Branch: `feature/multiprocessing-core-loops`
 
 ## Backlog
 
+### Intermediate / stepping-stone habitats between connected pairs
+
+Add a new habitat type whose characteristic center vector is the average of
+the two habitats it bridges.  This creates a realistic selective gradient
+between connected biomes — e.g. a Forest-Alpine corridor whose resource
+geometry sits exactly between forest and alpine, so a forest-adapted species
+must first become viable in the intermediate before it can thrive in the full
+alpine habitat.
+
+This enables multi-generation range expansion: a lineage that never could
+have survived a direct Forest→Alpine jump can instead adapt toward the
+intermediate over many generations, then eventually colonise the alpine side.
+
+Implementation sketch:
+- Add an `intermediate = true` flag (or a `derive_from = ["hab_a", "hab_b"]`
+  field) to a `[[habitats.instances]]` entry in the TOML config.
+- At construction time, compute the habitat vector as
+  `(vec_a + vec_b) / 2`, normalised, then add the usual per-instance
+  Gaussian noise on top.
+- The habitat is otherwise a full first-class habitat: creatures live, die,
+  reproduce, and speciate there normally.
+- Connections are still explicit in the TOML, e.g.:
+    connections = [["forest_1", "corridor_1"], ["corridor_1", "alpine_1"]]
+- The visualizer can optionally render corridor habitats differently
+  (smaller node, dashed edges) once the data model is wired up.
+
+---
+
 ### Intelligence as predation offset
 Use the `intelligence` trait as an offset to predation rate — smarter creatures
 should be better at avoiding predators. Needs to be wired into the predation

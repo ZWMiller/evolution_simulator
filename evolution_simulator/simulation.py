@@ -34,6 +34,7 @@ a visualiser.
 
 import json
 import logging
+import random
 import shutil
 import tomllib
 import numpy as np
@@ -149,6 +150,13 @@ class SimulationRunner:
         habitat_bias = sim_cfg.get("founding_habitat_bias", 0.0)
         seed = sim_cfg.get("seed", None)
         rng = np.random.default_rng(seed)
+        # Seed the global RNGs so the full run is reproducible from `seed`.
+        # habitat.py and creature.py use the global np.random.* singleton and
+        # stdlib random; without this they are OS-initialised and differ between
+        # runs even with the same config seed.
+        if seed is not None:
+            np.random.seed(seed)
+            random.seed(seed)
 
         self._founders_by_hab: dict[str, list[dict]] = {hid: [] for hid in self.habitats}
 
