@@ -37,7 +37,6 @@ def build(run: dict) -> html.Div:
     all_weeks = run["all_weeks"]
     min_week  = all_weeks[0]
     max_week  = all_weeks[-1]
-    step      = max(1, len(all_weeks) // 10)
     summary   = run["summary"]
     all_species = run["all_species"]
 
@@ -266,8 +265,14 @@ def build(run: dict) -> html.Div:
         style=dict(display="flex", flex="1", overflow="hidden"),
     )
 
-    marks = {w: str(w) for w in range(min_week, max_week + 1, step)}
-    marks[max_week] = str(max_week)
+    # Build marks from the actual logged weeks only.  With step=None the slider
+    # snaps exclusively to these positions, so dragging never lands on a week
+    # that has no data.  Show ~10 evenly-spaced labels to keep the track readable.
+    n_labels = 10
+    label_every = max(1, len(all_weeks) // n_labels)
+    label_set = {all_weeks[i] for i in range(0, len(all_weeks), label_every)}
+    label_set.add(max_week)
+    marks = {w: (str(w) if w in label_set else "") for w in all_weeks}
 
     _step_btn = dict(
         background="none", border=f"1px solid {BORDER}",
@@ -295,7 +300,7 @@ def build(run: dict) -> html.Div:
             html.Div(
                 dcc.Slider(
                     id="timeline-slider",
-                    min=min_week, max=max_week, step=1,
+                    min=min_week, max=max_week, step=None,
                     value=min_week, marks=marks,
                     tooltip={"placement": "top", "always_visible": True},
                     updatemode="drag",

@@ -1,0 +1,32 @@
+# Single-habitat long run — speciation observation
+# stats every 20 weeks, no per-event detail
+
+[simulation]
+weeks = 2000
+seed = 42
+founding_habitat_bias = 0.55
+output_dir = "simulation_logs"
+
+initial_species_per_habitat = 3
+creatures_per_species = 15
+initial_genome_noise = 0.12
+
+# No migration routes → no isolation events, clean speciation signal
+isolation_probability = 0.0
+
+stats_every = 20
+events_every = 0
+
+[species]
+threshold = 0.60
+min_species_population = 3
+min_species_weeks = 5
+
+[habitats]
+connections = []
+
+[[habitats.instances]]
+id   = "plains_1"
+type = "Plains"
+seed = 7
+name = "Central Plains"
