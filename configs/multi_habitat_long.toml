@@ -1,0 +1,62 @@
+# Multi-habitat long run — 30,000 weeks
+# 4 habitats in a ring: Desert ↔ Plains ↔ Forest ↔ Wetlands ↔ Desert
+# Species seed only in the Forest; all other habitats start empty.
+# Watch adaptation and colonisation spread around the ring over time.
+# Stats snapshot every 100 weeks (~300 data points), no per-event detail.
+
+[simulation]
+weeks = 30000
+seed = 7
+founding_habitat_bias = 0.55
+output_dir = "simulation_logs"
+
+initial_species_per_habitat = 3
+creatures_per_species = 10
+initial_genome_noise = 0.12
+isolation_probability = 0.008
+
+stats_every = 100
+events_every = 0
+
+[species]
+threshold = 0.60
+min_species_population = 3
+min_species_weeks = 5
+
+[habitats]
+connections = [
+    ["desert_1", "plains_1"],
+    ["plains_1", "forest_1"],
+    ["forest_1", "wetlands_1"],
+    ["wetlands_1", "desert_1"],
+]
+
+[[habitats.instances]]
+id   = "desert_1"
+type = "Desert"
+seed = 1
+name = "Northern Desert"
+initial_species_per_habitat = 0
+creatures_per_species = 0
+
+[[habitats.instances]]
+id   = "plains_1"
+type = "Plains"
+seed = 2
+name = "Central Plains"
+initial_species_per_habitat = 0
+creatures_per_species = 0
+
+[[habitats.instances]]
+id   = "forest_1"
+type = "Forest"
+seed = 3
+name = "Eastern Forest"
+
+[[habitats.instances]]
+id   = "wetlands_1"
+type = "Wetlands"
+seed = 4
+name = "Southern Wetlands"
+initial_species_per_habitat = 0
+creatures_per_species = 0
