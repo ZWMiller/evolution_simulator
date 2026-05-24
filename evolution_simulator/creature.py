@@ -132,7 +132,7 @@ DEFAULT_TRAIT_GENE_INDICES: dict[str, list[int]] = {
         38, 65, 115, 167, 269, 332, 415, 490, 491,
     ],
     # lifespan overlaps with disease resistance and stress tolerance
-    "lifespan_factor": [
+    "max_lifespan": [
         39, 40, 42, 66, 116, 168, 270, 271,
         333, 416, 492, 493,
     ],
@@ -491,7 +491,7 @@ class Creature:
     @property
     def max_lifespan(self) -> int:
         """Maximum lifespan in weeks (40 – 400 weeks, i.e. ~1 – 8 years)."""
-        return int(40 + 360 * self._compute_trait("lifespan_factor"))
+        return int(40 + 360 * self._compute_trait("max_lifespan"))
 
     @property
     def disease_resistance(self) -> float:

@@ -63,6 +63,47 @@ initial_genome_noise = 0.12
 # (0.007–0.010); estimated viable range 0.006–0.010.
 isolation_probability = 0.008
 
+# --- Logging cadence -------------------------------------------------------
+# Two independent cadences control how often each kind of data is written to
+# the per-week JSON logs.  Raising them is the single biggest speedup for long
+# runs — per-week statistics + JSON logging is ~70% of total runtime.
+#
+# stats_every: how often to compute + write per-SPECIES / per-HABITAT
+#   STATISTICS (mean traits, adaptation/food-water probabilities, per-species
+#   counts).  This is the EXPENSIVE compute path (~63% of runtime).  It is
+#   snapshot data — exactly what you want for tracking adaptation over
+#   thousands of generations.
+#     1   = every week (full resolution; original behavior)
+#     N   = compute + write stats only every Nth week
+#     <=0 = never (except week 1 and the final week, which always get a
+#           statistics snapshot so runs stay discoverable and have endpoints)
+#
+# events_every: how often to write INDIVIDUAL EVENTS (every birth, death,
+#   mating attempt, migration, speciation event, and isolation for that week).
+#   Use this when you want to trace lineages or study individual-level
+#   dynamics.  Writing events every week keeps the large per-pairing
+#   mating-event lists in every file (the main JSON-serialization cost).
+#     1   = every week (full resolution; original behavior)
+#     N   = write events only every Nth week
+#     <=0 = never (disabled; recommended for long runs)
+#
+# A week_NNNNN.json is written whenever EITHER cadence fires that week; each
+# section is included only when its own cadence fires.  Global and per-habitat
+# POPULATION are written in every file regardless of cadence, so the basic
+# population/species time series is never gapped.  The COMPLETE speciation
+# history is always preserved in summary.json regardless of these settings.
+#
+# Common recipes:
+#   stats_every = 10, events_every = 0    # snapshot every 10 weeks, no events (default)
+#   stats_every = 1,  events_every = 1    # full resolution (original behavior; slowest)
+#   stats_every = 52, events_every = 0    # ~yearly species snapshots, no events
+#   stats_every = 52, events_every = 1    # cheap stats, full individual events
+#   stats_every = 1,  events_every = 52   # full stats, sparse event sampling
+#
+# To enable detailed per-event logging, set events_every = 1 (or any N > 0).
+stats_every = 10
+events_every = 0
+
 
 [species]
 
@@ -75,6 +116,29 @@ isolation_probability = 0.008
 # where runaway speciation (thousands of species) dominated; estimated viable
 # range 0.45–0.75.
 threshold = 0.60
+
+# Two-stage speciation gate — prevents single-birth divergences from inflating
+# the species count.
+#
+# When a newborn's genome falls below the threshold for ALL confirmed species, it
+# enters a "candidate" stage instead of immediately creating a new species.  The
+# creature keeps its parent's species label throughout.  A candidate is promoted
+# to a confirmed species only when BOTH conditions are met:
+#
+#   min_species_population : at least this many living creatures belong to the
+#     candidate cluster at the time of the promotion check.  Prevents a lone
+#     outlier genome from spawning a species that never reproduces.
+#
+#   min_species_weeks : the candidate must have existed for at least this many
+#     weeks before it can be promoted.  Prevents a single generation of
+#     ephemeral mutants from becoming a permanent species.
+#
+# Candidates whose members all die before meeting these criteria are silently
+# evaporated — no speciation event is logged.
+#
+# Setting both to 1 approximates original (immediate) speciation behaviour.
+min_species_population = 3
+min_species_weeks = 5
 
 
 # ---------------------------------------------------------------------------

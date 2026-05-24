@@ -127,34 +127,32 @@ def load_run(log_dir: Path) -> dict:
                 }
 
     # ── Species lineage (for phylogeny) ───────────────────────────────────────
-    # Infer founding species: any species not created by a speciation event
-    speciated_species = {
-        ev["new_species"]
-        for evs in speciation_by_week.values()
-        for ev in evs
-    }
-    # Prefer explicit metadata list; fall back to inference
+    # Always built from summary.json so the phylogeny is complete regardless
+    # of whether per-week speciation_events were logged (events_every cadence).
+    all_speciation_events: list[dict] = summary.get("all_speciation_events", [])
+    failed_speciation_attempts: list[dict] = summary.get("all_failed_speciation_attempts", [])
+    speciated_names = {ev["new_species"] for ev in all_speciation_events}
+
     founding_species: list[str] = metadata.get(
         "founding_species",
-        [sp for sp in all_species if sp not in speciated_species],
+        [sp for sp in all_species if sp not in speciated_names],
     )
 
     species_lineage: dict[str, dict] = {}
     for sp in founding_species:
         species_lineage[sp] = {"parent": None, "week": 0, "children": []}
 
-    for week_n, events in sorted(speciation_by_week.items()):
-        for ev in events:
-            new_sp = ev["new_species"]
-            parent_sp = ev.get("parent_species")
-            species_lineage[new_sp] = {
-                "parent": parent_sp,
-                "week": week_n,
-                "creature_id": ev.get("creature_id"),
-                "children": [],
-            }
-            if parent_sp and parent_sp in species_lineage:
-                species_lineage[parent_sp]["children"].append(new_sp)
+    for ev in all_speciation_events:
+        new_sp = ev["new_species"]
+        parent_sp = ev.get("parent_species")
+        species_lineage[new_sp] = {
+            "parent": parent_sp,
+            "week": ev.get("week", 0),
+            "creature_id": ev.get("creature_id"),
+            "children": [],
+        }
+        if parent_sp and parent_sp in species_lineage:
+            species_lineage[parent_sp]["children"].append(new_sp)
 
     # Ensure any species without lineage info is treated as a root
     for sp in all_species:
@@ -198,11 +196,12 @@ def load_run(log_dir: Path) -> dict:
         "hybridization_by_week":   hybridization_by_week,
         "creature_births":         creature_births,
         "creature_children":       creature_children,
-        "species_lineage":         species_lineage,
-        "species_peak_population": species_peak_population,
-        "node_positions":          node_positions,
-        "weeks_simulated":         summary["weeks_simulated"],
-        "extinct":                 summary["extinct"],
+        "species_lineage":              species_lineage,
+        "species_peak_population":      species_peak_population,
+        "failed_speciation_attempts":   failed_speciation_attempts,
+        "node_positions":               node_positions,
+        "weeks_simulated":              summary["weeks_simulated"],
+        "extinct":                      summary["extinct"],
     }
 
 

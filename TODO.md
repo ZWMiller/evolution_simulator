@@ -6,6 +6,55 @@ Cross-machine task tracking for active development items.
 
 ## In Progress
 
+### Configurable logging cadence (PLANNING_TEMP.md Phase 1 — DONE)
+
+`stats_every` and `events_every` knobs added to `simulation.toml` and
+`SimulationRunner.step()` / `_build_week_log()`.  Default config now logs
+stats every 10 weeks (`stats_every = 10`) and disables detailed event logging
+(`events_every = 0`).  `runner.py` updated to use `births_this_week` /
+`deaths_this_week` from the step return dict.  6 new tests in
+`tests/test_simulation_logging.py`; all 206 tests pass.
+
+### Vectorized compute_stats (PLANNING_TEMP.md Phase 2 — DONE)
+
+`_batch_compute_traits()` in `habitat.py` stacks creature genes into a (N, 500)
+matrix and computes all 34 traits in one vectorized pass.  `compute_stats` now
+uses this instead of N × 34 individual `getattr` calls.  Total runtime dropped
+from 37.7 s → 11.75 s (69% reduction, measured on default 200-week config).
+
+### Fix runaway speciation (PLANNING_TEMP.md Phase 3 — DONE)
+
+Two-stage speciation implemented in `species.py`.  Diverged newborns now enter
+a **candidate** stage instead of immediately creating a confirmed species.  A
+candidate is promoted only when it has `min_species_population` (default 3)
+living members AND has existed for `min_species_weeks` (default 5) weeks.
+Candidates whose members all die before meeting criteria are silently evaporated.
+Config knobs in `[species]` section of `simulation.toml`.
+
+Next up:
+- Phase 10: multi-run sweep script (`sweep.py`) + global RNG seeding
+
+### Multiprocessing / parallelization
+
+NOTE: Per PLANNING_TEMP.md Section 1, within-run parallelism cannot speed up a
+single long run (weeks are sequentially dependent). The relevant multiprocessing
+opportunity is Phase 10: running N independent full simulations in parallel
+(parameter sweeps / replicates). The habitat-level parallelism investigation
+below is lower-priority given that conclusion.
+
+1. **Habitat-level parallelization** — each habitat's `simulate_week()` is
+   independent until migrations are collected. Run all habitats in parallel via
+   `multiprocessing.Pool` in `SimulationRunner.step()`, then merge migration
+   events in the main process. Likely net-neutral or negative for typical configs
+   (few habitats, process-overhead cost).
+
+2. **Mating pair evaluation** — the male/female pairing loop may be
+   parallelizable if pair compatibility checks are independent. Evaluate whether
+   lock contention on shared state (offspring list, species registry) makes this
+   impractical.
+
+Branch: `feature/multiprocessing-core-loops`
+
 ## Backlog
 
 ### Intelligence as predation offset
@@ -13,34 +62,6 @@ Use the `intelligence` trait as an offset to predation rate — smarter creature
 should be better at avoiding predators. Needs to be wired into the predation
 calculation in `habitat.py` alongside the existing `PREDATION_ALPHA` /
 `base_predation_rate` logic.
-
-### Multiprocessing / parallelization
-
-Speed up the simulation by running independent work in parallel. Confirmed
-parallelization opportunities to investigate:
-
-1. **Habitat-level parallelization** — each habitat's `simulate_day()` is
-   independent until migrations are collected. Run all habitats in parallel via
-   `multiprocessing.Pool` in `SimulationRunner.step()`, then merge migration
-   events in the main process. This is likely the highest-leverage change.
-
-2. **Creature-level updates within a habitat** — the per-creature energy/hydration
-   updates and death checks (step 1–2 of `simulate_day`) are vectorized already,
-   but confirm whether any loops remain that could benefit from parallelism.
-
-3. **Mating pair evaluation** — the male/female pairing loop (step 7 of
-   `simulate_day`) may be parallelizable if pair compatibility checks are
-   independent. Evaluate whether lock contention on shared state (offspring list,
-   species registry) makes this impractical.
-
-4. **Species assignment at birth** — `SpeciesRegistry.assign_species()` compares
-   each newborn against all progenitor vectors (vectorized cosine similarity).
-   If progenitor count grows large, this could be farmed out per-newborn.
-
-Watch for the migration invariant: migrations must still be collected from all
-habitats before any are applied. Parallelism must not let a creature be
-simulated twice in one day. Relevant code: `SimulationRunner.step()` in
-`simulation.py`, `Habitat.simulate_day()` in `habitat.py`.
 
 ---
 
@@ -62,23 +83,6 @@ Requirements:
 The pre-parser could live as a standalone utility (`log_loader.py` or similar)
 that the visualizer imports, or as a flag added to the existing visualizer
 entry points (`visualizer_basic.py`, `visualizer_advanced.py`).
-
----
-
-### Fix runaway speciation
-3,253 species from a single founding genome over 5,000 weeks is far too many.
-Two likely fixes to research and implement:
-
-1. **Minimum population before speciation is declared** — a single-birth
-   divergence should not count as a new species. Require the candidate lineage
-   to sustain some minimum headcount (e.g. N individuals) before the registry
-   promotes it.
-
-2. **Stability window** — require the diverged lineage to persist for some
-   minimum number of weeks without going extinct before it is recorded as a
-   new species. Prevents ephemeral genetic outliers from inflating the count.
-
-Relevant code: `SpeciesRegistry.assign_species()` in `species.py`.
 
 ---
 
