@@ -39,22 +39,44 @@ Species Concept).  Knobs: `compatibility_threshold = 0.65` (a touch below the
 full-genome **type** (for naming + the anagenesis axis below) plus the living
 centroid.  Speciation events now carry an `event_type` field (`"cladogenesis"`).
 
-### Next layer — anagenesis ("dogs used to be wolves")
+### Anagenesis + cladogenesis-split layer — DONE
 
-C2 deliberately CANNOT split a lineage that has transformed over time while
-remaining interfertile (dogs and wolves still interbreed).  That requires a
-second axis measured on the **full genome / trait vector vs the frozen type**
-(the morphological/phenetic concept), with a **fixed** divergence threshold
-(user's call).  When a lineage's living centroid drifts beyond that threshold
-from its type, declare a descendant species and run a **respecies check**:
-re-partition all living members by *closest cosine similarity* across
-{old type, new centroid} — NOT priority to the old species.  Coexistence
-(cladogenesis) vs replacement (pure anagenesis) then falls out automatically.
-New event_type for these: `"anagenesis"`.  Dead ancestors keep their labels
-(the log is the fossil record); the name follows the type.
+Two periodic detectors added in `species.py`, run on the `respeciate_every`
+cadence in the fixed order `detect_subcluster_splits` → `refresh_centroids` →
+`detect_anagenesis` (`promote_candidates` still runs every week):
 
-Also still open: **species merging** (BSC is non-monotonic — interfertile
-species that drift back together should re-merge; today the count only grows).
+- **Cladogenesis split detector** (`detect_subcluster_splits`): catches a
+  population that has split into two reproductively-isolated modes that a single
+  averaged centroid masks (the modes sit symmetrically around the midpoint, so no
+  individual newborn trips the membership test).  Members are clustered in
+  compatibility space via a numpy **spherical k-means** (`_select_clusters`
+  sweeps K=2..`split_max_k`, picks the largest K whose centroids are all mutually
+  below `split_isolation_threshold`).  Cluster nearest the frozen type keeps the
+  name; others seed/extend candidates and flow through the existing two-stage
+  gate.  `event_type: "cladogenesis"`.
+- **Anagenesis detector** (`detect_anagenesis`): catches in-place lineage
+  transformation that stays interfertile (chronospecies — dogs/wolves).  Measures
+  a separate 32-trait **phenotype** axis (`PHENOTYPE_TRAITS`,
+  `compute_phenotype_matrix`), cosine **centered on 0.5**, type vs living
+  centroid.  Below `anagenesis_threshold` (0.93) held for `anagenesis_weeks` (60,
+  a **persistence gate** so transient dips aren't named) → respeciate members by
+  closest phenotype between new centroid and frozen type (name follows the type).
+  `event_type: "anagenesis"`.
+
+Calibration: phenotype drift is selection-bounded (plateaus ~0.94 because
+adaptation chases a fixed habitat optimum), measured via
+`experiments/drift_trajectory.py`; hence 0.93 + persistence rather than 0.90.
+`event_type` is plumbed through the logs and both visualizers (splits solid,
+anagenesis dashed/amber).  Generation-scaled gates (`min_species_population=10`,
+`min_species_weeks=60`) live in the bundled configs; class defaults stay 3/5.
+
+### Next layer — species merging (BSC is non-monotonic)
+
+Still open: interfertile species that drift back together should **re-merge**;
+today the species count only ever grows.  The BSC says two populations that can
+once again interbreed are one species, so a periodic merge check (living
+centroids within the mating floor of each other → collapse to the older name)
+is the symmetric counterpart to the split detector.
 
 ### Fix runaway speciation (PLANNING_TEMP.md Phase 3 — DONE)
 

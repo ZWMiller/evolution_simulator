@@ -27,8 +27,6 @@ min_species_population = 10
 min_species_weeks = 60
 anagenesis_threshold = 0.93
 anagenesis_weeks = 60
-min_species_population = 3
-min_species_weeks = 5
 
 [habitats]
 connections = []

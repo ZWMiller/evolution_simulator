@@ -100,7 +100,7 @@ gates mating. Each species keeps **two references**:
 
 Three mechanisms run on top of this:
 
-1. **Membership (C2).** A newborn joins the nearest living species whose centroid is within
+1. **Membership.** A newborn joins the nearest living species whose centroid is within
    `compatibility_threshold` (compat-subset cosine); otherwise it enters a two-stage **candidate**
    that is promoted to a confirmed species only once it has `min_species_population` members and
    has persisted `min_species_weeks` weeks.
@@ -305,7 +305,7 @@ evolution_simulator/
 │   ├── creature.py               ← gene/trait system, phenotype, reproduction
 │   ├── habitat.py                ← resource geometry, predation, migration, stats
 │   ├── habitats/types.py         ← 14 typed biomes + HABITAT_TYPE_REGISTRY
-│   ├── species.py                ← SpeciesRegistry: C2 + cladogenesis + anagenesis
+│   ├── species.py                ← SpeciesRegistry: membership + cladogenesis + anagenesis
 │   ├── simulation.py             ← SimulationRunner, JSON logging
 │   └── config/                   ← simulation.toml, species_names.toml
 └── tests/                        ← test_creature.py, test_habitat.py, test_species.py, ...
