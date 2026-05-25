@@ -17,9 +17,12 @@ isolation_probability = 0.008
 
 stats_every = 100
 events_every = 0
+respeciate_every = 10   # weeks between living-centroid refreshes
 
 [species]
-threshold = 0.60
+# Compatibility-subset cosine vs each living species' centroid (see default
+# config for the full explanation).  A touch below the 0.70 mating floor.
+compatibility_threshold = 0.65
 min_species_population = 3
 min_species_weeks = 5
 

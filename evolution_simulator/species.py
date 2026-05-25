@@ -1,23 +1,40 @@
 """
 Species tracking for the evolution simulator.
 
-Each species is defined by a progenitor gene vector.  When a creature is born,
-its full genome is compared (cosine similarity) to EVERY registered progenitor.
-The creature is assigned to whichever existing species it is most similar to,
-provided that similarity exceeds species_threshold.  Only if no existing
-species is close enough is a new species declared.
+Speciation is detected on the **same signal that governs mating**: the
+245-locus ``compatibility_genes`` subset (see Creature.compatibility_score).
+A newborn's compatibility sub-vector is compared by cosine similarity against
+the **living centroid** of every species that currently has living members.
+The creature joins the nearest species if that similarity meets
+``compatibility_threshold``; otherwise it enters a candidate stage that may be
+promoted to a confirmed species.
 
-Checking all progenitors (rather than just the parent's species) prevents
-false speciation events in two important scenarios:
+Why living centroids (not frozen progenitors)
+---------------------------------------------
+A species' reproductive reference point is the *current* population, refreshed
+every ``respeciate_every`` weeks from its living members.  This is the fix for
+runaway speciation: when an entire interbreeding population drifts together,
+the centroid drifts with it, so ordinary drift never trips a speciation event.
+A new species is declared only when a sub-cluster diverges in the compatibility
+subset far enough that it can no longer breed with any living population — i.e.
+genuine reproductive isolation (the Biological Species Concept).
+
+Why the comparison is against ALL living species (not just the parent)
+----------------------------------------------------------------------
+Checking every living centroid prevents two failure modes:
   1. Drift-back: a lineage briefly diverges, then converges back toward an
-     ancestral species — should be re-absorbed rather than logged as a
-     second new species.
-  2. Convergent evolution: two independent lineages evolve toward the same
-     genetic region — should be recognised as the same species.
+     ancestral species — re-absorbed rather than logged as a new species.
+  2. Convergent evolution: two independent lineages evolving toward the same
+     compatibility region are recognised as one species.
 
-Using the full 500-dimensional gene vector (vs. the 245-dim mating subset)
-makes species detection more sensitive: small directional shifts in many
-loci accumulate into detectable divergence before full reproductive isolation.
+Two references per species
+---------------------------
+Each confirmed species keeps two genomes:
+  - **type** (full 500-dim, frozen at founding/promotion): anchors the name
+    ("the name follows the type") and is reserved for the future *anagenesis*
+    axis, which will measure how far a lineage has drifted from its own past.
+  - **living centroid** (245-dim compatibility subset, refreshed periodically):
+    the reproductive reference used for C2 detection here.
 """
 
 import random
@@ -25,6 +42,8 @@ import tomllib
 import numpy as np
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
+
+from .creature import DEFAULT_TRAIT_GENE_INDICES
 
 if TYPE_CHECKING:
     from .creature import Creature
@@ -82,7 +101,7 @@ ADJECTIVES, NOUNS = load_name_config()
 
 class SpeciesRegistry:
     """
-    Tracks species and detects speciation events.
+    Tracks species and detects speciation events on the mating-compatibility signal.
 
     Usage
     -----
@@ -97,83 +116,97 @@ class SpeciesRegistry:
 
            result = habitat.simulate_week(species_registry=registry)
 
-       Or call manually:
-
-           registry.assign_species(newborn)
-
-    3. After all habitats have run each week, call promote_candidates():
+    3. Each week, after migrations are applied, refresh the living centroids
+       (on the configured cadence) and promote any eligible candidates:
 
            all_alive = [c for hab in habitats.values() for c in hab.alive_creatures]
+           registry.refresh_centroids(all_alive)        # periodic
            registry.promote_candidates(all_alive, current_week)
 
     4. Inspect the history:
 
-           registry.speciation_events  →  list[dict]
+           registry.speciation_events  →  list[dict]   (each carries event_type)
            registry.all_species        →  list[str]
 
-    Species detection algorithm (two-stage)
-    ----------------------------------------
-    Detection: for each newborn whose genome falls below species_threshold for
-    all confirmed progenitors, a candidate is created (or the creature joins the
-    nearest existing candidate if similar enough).  The creature keeps its
-    parent's species label during the candidate period.
+    Detection algorithm (two-stage, compatibility space)
+    ----------------------------------------------------
+    Detection: a newborn's 245-dim compatibility sub-vector is compared by
+    cosine similarity to the living centroid of every species with living
+    members.  If the best score is below compatibility_threshold for all of
+    them, the creature enters a candidate (joining the nearest candidate if
+    close enough, else founding a new one).  It keeps its parent species label
+    during the candidate period.
 
-    Promotion: each week, promote_candidates() checks every live candidate.
-    A candidate is promoted to a confirmed species only when it has at least
-    min_species_population living members AND has existed for at least
-    min_species_weeks weeks.  On promotion all living members are renamed.
-    Candidates whose members all die before promotion are silently evaporated.
-
-    Checking ALL confirmed progenitors prevents:
-    - False new-species events when a lineage drifts back toward an
-      ancestral genetic region (convergence / drift-back).
-    - Duplicate species for independently converging lineages.
+    Promotion: each week, promote_candidates() promotes a candidate to a
+    confirmed species only when it has at least min_species_population living
+    members AND has existed for at least min_species_weeks weeks.  On promotion
+    its full-genome type is frozen, its living centroid is seeded from its
+    members, and all living members are renamed.  Candidates whose members all
+    die before promotion are silently evaporated.
 
     Parameters
     ----------
-    species_threshold : float
-        Full-genome cosine similarity required to be considered the same
-        species.  Default 0.75.
+    compatibility_threshold : float
+        Cosine similarity (on the 245-dim compatibility subset) to a species'
+        living centroid required to be counted as that species.  Set a touch
+        below the mating floor (Creature.COMPATIBILITY_FLOOR) so a species
+        boundary means "cannot breed with that population".  Default 0.65.
     min_species_population : int
         Minimum number of living candidate members required for promotion.
     min_species_weeks : int
         Minimum number of weeks a candidate must exist before promotion.
+    compat_indices : list[int], optional
+        Gene loci that define the compatibility subset.  Defaults to
+        Creature's ``compatibility_genes`` index set.
     """
 
-    DEFAULT_SPECIES_THRESHOLD: float = 0.75
+    DEFAULT_COMPATIBILITY_THRESHOLD: float = 0.65
     DEFAULT_MIN_SPECIES_POPULATION: int = 3
     DEFAULT_MIN_SPECIES_WEEKS: int = 5
 
     def __init__(
         self,
-        species_threshold: float = DEFAULT_SPECIES_THRESHOLD,
+        compatibility_threshold: float = DEFAULT_COMPATIBILITY_THRESHOLD,
         config_path: Path = DEFAULT_CONFIG_PATH,
         min_species_population: int = DEFAULT_MIN_SPECIES_POPULATION,
         min_species_weeks: int = DEFAULT_MIN_SPECIES_WEEKS,
+        compat_indices: Optional[list[int]] = None,
     ):
-        self.species_threshold: float = species_threshold
+        self.compatibility_threshold: float = compatibility_threshold
         self.min_species_population: int = min_species_population
         self.min_species_weeks: int = min_species_weeks
+        if compat_indices is None:
+            compat_indices = DEFAULT_TRAIT_GENE_INDICES["compatibility_genes"]
+        self._compat_indices: np.ndarray = np.asarray(compat_indices, dtype=int)
+
         self._adjectives, self._nouns = load_name_config(config_path)
-        # name → progenitor gene vector (500-dim)
+
+        # name → frozen full-genome TYPE (500-dim).  Anchors the name and is
+        # reserved for the future anagenesis axis.  Spans all species ever.
         self._registry: dict[str, np.ndarray] = {}
-        # Stacked progenitor matrix and name list kept in sync for fast lookup
+        # Stacked frozen-type matrix + name list, kept in sync (all species).
         self._progenitor_matrix: Optional[np.ndarray] = None  # (N, 500)
-        self._species_order: list[str] = []  # same order as matrix rows
-        # Chronological log of every confirmed speciation event
+        self._species_order: list[str] = []
+
+        # name → LIVING centroid (compat subset, 245-dim).  Only species with
+        # living members appear here after a refresh; this is the C2 detection set.
+        self._centroids: dict[str, np.ndarray] = {}
+        self._centroid_matrix: Optional[np.ndarray] = None  # (M, 245)
+        self._centroid_order: list[str] = []
+
+        # Chronological log of every confirmed speciation event (each carries
+        # an "event_type": currently always "cladogenesis").
         self.speciation_events: list[dict] = []
         # Track used name combinations to avoid duplicates
         self._used_names: set[str] = set()
         # Two-stage speciation: candidates waiting for promotion.
-        # cid → {genes, parent_species, detected_week, members: set[str],
-        #         first_creature_id, peak_members: int}
+        # cid → {genes (full), compat (245-dim seed), parent_species,
+        #         detected_week, members: set[str], first_creature_id, peak_members}
         self._candidates: dict[str, dict] = {}
         self._next_candidate_id: int = 0
         # Set by SimulationRunner each week before simulate_week calls
         self.current_week: int = 0
-        # Candidates that were declared but whose members all died before
-        # promotion.  Each entry is a snapshot of the candidate at evaporation
-        # time, for lineage visualisation and diagnostics.
+        # Candidates declared but whose members all died before promotion.
         self.failed_speciation_attempts: list[dict] = []
 
     # ------------------------------------------------------------------
@@ -187,6 +220,9 @@ class SpeciesRegistry:
     ) -> str:
         """
         Register a founding species.
+
+        Stores the full genome as the frozen type and seeds the species' living
+        centroid from the genome's compatibility subset.
 
         Parameters
         ----------
@@ -206,31 +242,34 @@ class SpeciesRegistry:
         """
         Assign or update the species for a newborn creature (two-stage).
 
-        1. Bootstrap (empty registry): immediately registers a confirmed species.
-        2. Confirmed match: creature joins the nearest confirmed species.
-        3. Below threshold: creature joins the nearest candidate (if similar
-           enough) or creates a new one.  In both cases the creature retains its
-           inherited parent species label — no confirmed species is created yet.
+        1. No living centroids (empty/extinct registry): register a confirmed
+           species immediately (bootstrap).
+        2. Compatible match: the creature joins the nearest living species whose
+           centroid is within compatibility_threshold.
+        3. Reproductively isolated: the creature joins the nearest candidate (if
+           close enough) or founds a new one.  In both cases it retains its
+           inherited parent species label until/unless the candidate is promoted.
 
         Sets ``creature.species`` as a side effect and returns the name.
         """
-        if not self._registry:
-            parent_species = creature.species
-            name = self._register_new_species(creature, parent_species)
+        compat = self._compat(creature.genes)
+
+        if self._centroid_matrix is None:
+            # No living population to compare against — bootstrap a species.
+            name = self._register_new_species(creature, creature.species)
             creature.species = name
             return name
 
-        best_name, best_score = self._closest_species(creature.genes)
-
-        if best_score >= self.species_threshold:
+        best_name, best_score = self._closest_centroid(compat)
+        if best_score >= self.compatibility_threshold:
             creature.species = best_name
             return best_name
 
-        # No confirmed species is close enough — enter candidate stage.
-        parent_species = creature.species  # inherited label; kept throughout candidate period
-        cid, cand_score = self._closest_candidate(creature.genes)
+        # Reproductively isolated from every living species — candidate stage.
+        parent_species = creature.species  # inherited label; kept through candidacy
+        cid, cand_score = self._closest_candidate(compat)
 
-        if cid is not None and cand_score >= self.species_threshold:
+        if cid is not None and cand_score >= self.compatibility_threshold:
             cand = self._candidates[cid]
             cand["members"].add(creature.creature_id)
             cand["peak_members"] = max(cand["peak_members"], len(cand["members"]))
@@ -239,6 +278,7 @@ class SpeciesRegistry:
             self._next_candidate_id += 1
             self._candidates[new_cid] = {
                 "genes": creature.genes.copy(),
+                "compat": compat.copy(),
                 "parent_species": parent_species,
                 "detected_week": self.current_week,
                 "members": {creature.creature_id},
@@ -246,8 +286,37 @@ class SpeciesRegistry:
                 "peak_members": 1,
             }
 
-        # Creature keeps its parent species label during the candidate period.
         return creature.species
+
+    def refresh_centroids(self, alive_creatures: "list[Creature]") -> None:
+        """
+        Recompute each species' living centroid from its current members.
+
+        Call periodically (every ``respeciate_every`` weeks) after migrations.
+        The centroid of a species is the mean compatibility sub-vector of its
+        living members, EXCLUDING creatures that currently belong to a pending
+        candidate — candidate members are incipiently divergent and must not
+        drag the parent species' reproductive centre toward themselves.
+
+        Species with no qualifying living members are dropped from the
+        comparison set (you cannot breed with an extinct population); they
+        remain in the historical registry.
+        """
+        candidate_member_ids: set[str] = set()
+        for cand in self._candidates.values():
+            candidate_member_ids |= cand["members"]
+
+        groups: dict[str, list[np.ndarray]] = {}
+        for c in alive_creatures:
+            if c.creature_id in candidate_member_ids:
+                continue
+            if c.species in self._registry:
+                groups.setdefault(c.species, []).append(self._compat(c.genes))
+
+        self._centroids = {
+            name: np.mean(np.stack(vecs), axis=0) for name, vecs in groups.items()
+        }
+        self._rebuild_centroid_matrix()
 
     def promote_candidates(
         self, alive_creatures: "list[Creature]", current_week: int
@@ -294,12 +363,25 @@ class SpeciesRegistry:
                 and weeks_elapsed >= self.min_species_weeks
             ):
                 new_name = self._unique_name()
-                self._add_to_registry(new_name, cand["genes"])
+                # Living centroid seeded from the promoted members' compat mean;
+                # full-genome type frozen from the candidate's seed genome.
+                member_compat = [
+                    self._compat(creature_map[mid].genes)
+                    for mid in alive_members
+                    if mid in creature_map
+                ]
+                centroid = (
+                    np.mean(np.stack(member_compat), axis=0)
+                    if member_compat
+                    else cand["compat"]
+                )
+                self._add_to_registry(new_name, cand["genes"], centroid=centroid)
                 ev = {
                     "new_species": new_name,
                     "parent_species": cand["parent_species"],
                     "creature_id": cand["first_creature_id"],
                     "week": current_week,
+                    "event_type": "cladogenesis",
                 }
                 self.speciation_events.append(ev)
                 promoted_events.append(ev)
@@ -315,86 +397,121 @@ class SpeciesRegistry:
 
     def similarity_to_all_progenitors(self, creature: "Creature") -> dict[str, float]:
         """
-        Return full-genome cosine similarity between *creature* and every
-        registered species' progenitor.  Useful for inspection and logging.
+        Full-genome cosine similarity between *creature* and every species'
+        frozen TYPE genome.  Inspection/diagnostics helper; this is the
+        full-genome axis the future anagenesis detector will build on, not the
+        compatibility signal used for C2 detection.
         """
-        if not self._registry:
+        if self._progenitor_matrix is None:
             return {}
-        sims = self._batch_similarity(creature.genes)
+        mat = self._progenitor_matrix
+        dots = mat @ creature.genes
+        prog_norms = np.linalg.norm(mat, axis=1)
+        creature_norm = float(np.linalg.norm(creature.genes))
+        denom = prog_norms * creature_norm
+        safe = denom > 1e-10
+        sims = np.where(safe, dots / np.where(safe, denom, 1.0), 0.0)
+        sims = np.clip(sims, -1.0, 1.0)
         return dict(zip(self._species_order, sims.tolist()))
 
     def progenitor_genes(self, species_name: str) -> Optional[np.ndarray]:
-        """Return a copy of the progenitor gene vector for the named species."""
+        """Return a copy of the frozen TYPE genome for the named species."""
         genes = self._registry.get(species_name)
         return genes.copy() if genes is not None else None
 
+    def centroid(self, species_name: str) -> Optional[np.ndarray]:
+        """Return a copy of the living compatibility centroid, or None if extinct."""
+        c = self._centroids.get(species_name)
+        return c.copy() if c is not None else None
+
     @property
     def species_count(self) -> int:
-        """Number of distinct species currently registered."""
+        """Number of distinct species ever registered (including extinct)."""
         return len(self._registry)
 
     @property
+    def living_species_count(self) -> int:
+        """Number of species with living members as of the last centroid refresh."""
+        return len(self._centroid_order)
+
+    @property
     def all_species(self) -> list[str]:
-        """Names of all currently registered species."""
+        """Names of all species ever registered."""
         return list(self._registry.keys())
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _add_to_registry(self, name: str, genes: np.ndarray) -> None:
-        """Add a new entry and keep the fast-lookup matrix in sync."""
+    def _compat(self, genes: np.ndarray) -> np.ndarray:
+        """Slice the compatibility subset (245-dim) out of a full genome."""
+        return genes[self._compat_indices]
+
+    def _add_to_registry(
+        self, name: str, genes: np.ndarray, centroid: Optional[np.ndarray] = None
+    ) -> None:
+        """
+        Register a new species: store its frozen full-genome type and seed its
+        living compatibility centroid.
+
+        centroid : optional explicit compat centroid (used at promotion, seeded
+            from living members).  If omitted, the centroid is seeded from the
+            type genome's compatibility subset (used at founding/bootstrap).
+        """
         self._registry[name] = genes.copy()
         self._species_order.append(name)
         self._used_names.add(name)
-        # Append row to stacked matrix
+
         row = genes[np.newaxis, :].copy()  # (1, 500)
         if self._progenitor_matrix is None:
             self._progenitor_matrix = row
         else:
             self._progenitor_matrix = np.vstack([self._progenitor_matrix, row])
 
-    def _batch_similarity(self, genes: np.ndarray) -> np.ndarray:
-        """
-        Vectorised cosine similarity between *genes* and every progenitor.
+        seed = centroid if centroid is not None else self._compat(genes)
+        self._centroids[name] = seed.copy()
+        self._rebuild_centroid_matrix()
 
-        Returns shape (N_species,).
-        """
-        mat = self._progenitor_matrix          # (N, 500)
-        dots = mat @ genes                     # (N,)
-        prog_norms = np.linalg.norm(mat, axis=1)   # (N,)
-        creature_norm = float(np.linalg.norm(genes))
-        denom = prog_norms * creature_norm
-        safe = denom > 1e-10
-        sims = np.where(safe, dots / np.where(safe, denom, 1.0), 0.0)
-        return np.clip(sims, -1.0, 1.0)
+    def _rebuild_centroid_matrix(self) -> None:
+        """Restack the living-centroid matrix from self._centroids."""
+        if not self._centroids:
+            self._centroid_matrix = None
+            self._centroid_order = []
+            return
+        self._centroid_order = list(self._centroids.keys())
+        self._centroid_matrix = np.stack(
+            [self._centroids[n] for n in self._centroid_order]
+        )
 
-    def _closest_species(self, genes: np.ndarray) -> tuple[str, float]:
-        """Return (species_name, cosine_similarity) for the nearest confirmed progenitor."""
-        sims = self._batch_similarity(genes)
+    def _closest_centroid(self, compat: np.ndarray) -> tuple[str, float]:
+        """Return (species_name, cosine_similarity) for the nearest living centroid."""
+        mat = self._centroid_matrix  # (M, 245)
+        dots = mat @ compat
+        norms = np.linalg.norm(mat, axis=1) * float(np.linalg.norm(compat))
+        safe = norms > 1e-10
+        sims = np.where(safe, dots / np.where(safe, norms, 1.0), 0.0)
+        sims = np.clip(sims, -1.0, 1.0)
         best_idx = int(np.argmax(sims))
-        return self._species_order[best_idx], float(sims[best_idx])
+        return self._centroid_order[best_idx], float(sims[best_idx])
 
-    def _closest_candidate(self, genes: np.ndarray) -> tuple[Optional[str], float]:
+    def _closest_candidate(self, compat: np.ndarray) -> tuple[Optional[str], float]:
         """
-        Return (candidate_id, cosine_similarity) for the nearest unconfirmed candidate.
-
-        Iterates all pending candidates and computes cosine similarity between
-        *genes* and each candidate's progenitor gene vector.  Returns the best
-        match and its score.  If no candidates exist, returns (None, 0.0).
-
-        The caller is responsible for checking whether the returned score meets
-        species_threshold before deciding to join the candidate.
+        Return (candidate_id, cosine_similarity) for the nearest candidate in
+        compatibility space.  (None, 0.0) if no candidates exist.
         """
         if not self._candidates:
             return None, 0.0
         best_cid: Optional[str] = None
         best_score = -2.0
-        norm_g = float(np.linalg.norm(genes))
+        norm_c = float(np.linalg.norm(compat))
         for cid, cand in self._candidates.items():
-            cg = cand["genes"]
-            denom = float(np.linalg.norm(cg)) * norm_g
-            sim = float(np.clip(np.dot(cg, genes) / denom, -1.0, 1.0)) if denom > 1e-10 else 0.0
+            cv = cand["compat"]
+            denom = float(np.linalg.norm(cv)) * norm_c
+            sim = (
+                float(np.clip(np.dot(cv, compat) / denom, -1.0, 1.0))
+                if denom > 1e-10
+                else 0.0
+            )
             if sim > best_score:
                 best_score = sim
                 best_cid = cid
@@ -403,12 +520,14 @@ class SpeciesRegistry:
     def _register_new_species(
         self, creature: "Creature", parent_species: Optional[str]
     ) -> str:
+        """Bootstrap path: immediately confirm a species from a single creature."""
         name = self._unique_name()
         self._add_to_registry(name, creature.genes)
         self.speciation_events.append({
             "new_species": name,
             "parent_species": parent_species,
             "creature_id": creature.creature_id,
+            "event_type": "cladogenesis",
         })
         return name
 
@@ -427,7 +546,8 @@ class SpeciesRegistry:
 
     def __repr__(self) -> str:
         return (
-            f"SpeciesRegistry({self.species_count} confirmed species, "
+            f"SpeciesRegistry({self.species_count} species, "
+            f"{self.living_species_count} living, "
             f"{len(self._candidates)} candidates, "
             f"{len(self.speciation_events)} speciation events)"
         )

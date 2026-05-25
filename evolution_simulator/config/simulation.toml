@@ -104,24 +104,38 @@ isolation_probability = 0.008
 stats_every = 10
 events_every = 0
 
+# respeciate_every: how often (in weeks) to refresh each species' LIVING
+# compatibility centroid — the reproductive reference point speciation is
+# measured against.  Between refreshes the centroid lags slightly behind the
+# population, which is intentional: it gives a genuinely diverging sub-cluster a
+# window to pull away before the centroid chases it.  Smaller = the reference
+# tracks drift more tightly (harder to speciate); larger = looser tracking.
+respeciate_every = 10
+
 
 [species]
 
-# Full-genome cosine similarity floor: a newborn is assigned to the nearest
-# existing species if its similarity to that progenitor meets this threshold.
-# Counterintuitively, LOWER = less speciation (wider species neighbourhoods),
-# HIGHER = more speciation (newborns must be very close to a progenitor).
-# Initial viability study (481 LHS trials, not extensive): stable outcomes
-# peaked at ~27% for thresholds 0.40–0.54 and collapsed to ~2% above 0.83,
-# where runaway speciation (thousands of species) dominated; estimated viable
-# range 0.45–0.75.
-threshold = 0.60
+# Speciation is detected on the SAME signal that gates mating: the 245-locus
+# compatibility-gene subset (Creature.compatibility_genes).  A newborn's
+# compatibility sub-vector is compared by cosine similarity to the LIVING
+# centroid of every species that currently has members; it joins the nearest
+# one if the score meets this threshold, otherwise it enters the candidate
+# stage below.  Because the reference is the living population (refreshed every
+# respeciate_every weeks), a whole population drifting together never speciates
+# — only a sub-cluster that diverges in the compatibility subset far enough to
+# stop interbreeding does (the Biological Species Concept).
+#
+# Set a touch below the mating floor (Creature.COMPATIBILITY_FLOOR = 0.70) so a
+# species boundary means "can no longer breed with that population".  LOWER =
+# wider species (more lumping); HIGHER = finer splits.
+compatibility_threshold = 0.65
 
 # Two-stage speciation gate — prevents single-birth divergences from inflating
 # the species count.
 #
-# When a newborn's genome falls below the threshold for ALL confirmed species, it
-# enters a "candidate" stage instead of immediately creating a new species.  The
+# When a newborn's compatibility falls below compatibility_threshold for ALL
+# living species, it enters a "candidate" stage instead of immediately creating
+# a new species.  The
 # creature keeps its parent's species label throughout.  A candidate is promoted
 # to a confirmed species only when BOTH conditions are met:
 #

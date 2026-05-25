@@ -22,32 +22,39 @@ matrix and computes all 34 traits in one vectorized pass.  `compute_stats` now
 uses this instead of N × 34 individual `getattr` calls.  Total runtime dropped
 from 37.7 s → 11.75 s (69% reduction, measured on default 200-week config).
 
-### Speciation still running away — needs discussion before redesign
+### Speciation redesign — C2 (reproductive isolation) DONE
 
-*** NEEDS SOBER DISCUSSION — design not settled ***
+Root cause of runaway speciation was a signal mismatch: detection compared
+newborns to a *frozen full-genome progenitor*, while mating is gated by the
+245-dim `compatibility_genes` subset.  Ordinary full-genome drift away from the
+ancient anchor speciated coherent, still-interbreeding populations (~2,150
+species vs ~1,650 individuals at week 14k).
 
-Two-stage gate is not enough: the 30k-week multi-habitat run had ~2,150
-species by week 14,000 with only ~1,650 living creatures — more species than
-individuals.  The goal is to watch species-level adaptation emerge naturally,
-which is impossible if every generation of normal drift creates a new species.
+**C2 fix (implemented):** detection now keys on the compatibility subset,
+compared against each species' **living centroid** (refreshed every
+`respeciate_every` weeks, default 10) instead of a frozen progenitor.  A species
+boundary now means "can no longer interbreed with that population" (Biological
+Species Concept).  Knobs: `compatibility_threshold = 0.65` (a touch below the
+0.70 mating floor), `respeciate_every = 10`.  Each species keeps a frozen
+full-genome **type** (for naming + the anagenesis axis below) plus the living
+centroid.  Speciation events now carry an `event_type` field (`"cladogenesis"`).
 
-Root cause: comparing newborns to an ancient progenitor genome means ordinary
-drift eventually triggers speciation even when the whole population is still
-coherent and interbreeding.
+### Next layer — anagenesis ("dogs used to be wolves")
 
-Open design question: how should speciation actually be detected?  Options
-discussed but not decided:
-- Compare to current living centroid instead of ancient progenitor (but does
-  that mean the goalposts move forever and we never declare a new species?).
-- Compare current centroid to centroid N generations ago — detect when the
-  lineage has changed enough to be incompatible with its past self (anagenesis,
-  but is that really speciation or just evolution?).
-- Ground speciation in reproductive isolation: a new species only when a
-  sub-population can no longer interbreed with the main group.  Mating
-  compatibility is already computed in the simulation.
+C2 deliberately CANNOT split a lineage that has transformed over time while
+remaining interfertile (dogs and wolves still interbreed).  That requires a
+second axis measured on the **full genome / trait vector vs the frozen type**
+(the morphological/phenetic concept), with a **fixed** divergence threshold
+(user's call).  When a lineage's living centroid drifts beyond that threshold
+from its type, declare a descendant species and run a **respecies check**:
+re-partition all living members by *closest cosine similarity* across
+{old type, new centroid} — NOT priority to the old species.  Coexistence
+(cladogenesis) vs replacement (pure anagenesis) then falls out automatically.
+New event_type for these: `"anagenesis"`.  Dead ancestors keep their labels
+(the log is the fossil record); the name follows the type.
 
-Needs a clear decision on what the simulation is trying to model before
-touching the code.
+Also still open: **species merging** (BSC is non-monotonic — interfertile
+species that drift back together should re-merge; today the count only grows).
 
 ### Fix runaway speciation (PLANNING_TEMP.md Phase 3 — DONE)
 

@@ -69,9 +69,13 @@ Within a single day, `Habitat.simulate_day()` runs in this fixed order:
 
 ### Species Detection (`species.py`)
 
-`SpeciesRegistry` maintains a list of progenitor gene vectors. At birth, a newborn's genome is compared to **every** registered progenitor via vectorized cosine similarity. It joins the closest existing species if the score exceeds `species_threshold` (default 0.75), otherwise a speciation event is declared.
+Speciation is detected on the **same signal that gates mating**: the 245-locus `compatibility_genes` subset. A newborn's compatibility sub-vector is compared by cosine similarity against the **living centroid** of every species that currently has members; it joins the nearest one if the score meets `compatibility_threshold` (default 0.65, a touch below the 0.70 `COMPATIBILITY_FLOOR`), otherwise it enters a candidate stage (two-stage gate: `min_species_population` + `min_species_weeks`) that may be promoted to a confirmed species. This is the Biological Species Concept — a species boundary means "can no longer interbreed with that population."
 
-Checking all progenitors (not just the parent's species) prevents two failure modes: drift-back (a lineage re-approaching an ancestral region would otherwise be logged as a new species) and convergent evolution (two lineages converging on the same genetic region would otherwise be counted twice).
+**Why living centroids, not frozen progenitors**: the reproductive reference is the *current* population, refreshed every `respeciate_every` weeks (`SpeciesRegistry.refresh_centroids`, called from `SimulationRunner.step()` after migrations). When a whole interbreeding population drifts together the centroid drifts with it, so ordinary drift never trips a speciation event — this is the fix for the historical runaway-speciation bug. Candidate members are *excluded* from their parent species' centroid so an incipient split can pull away cleanly.
+
+**Two references per species**: each confirmed species keeps a frozen full-genome **type** (`progenitor_genes`, anchors the name and is reserved for the future anagenesis axis) *and* a living 245-dim compatibility **centroid** (`centroid`, used for detection). Comparison is against **all living species** (not just the parent), preventing drift-back and convergent-evolution false positives.
+
+Each speciation event carries an `event_type` field (currently always `"cladogenesis"`); the future anagenesis layer will add a second type so the phylogeny can render splits vs. in-place lineage transformation distinctly.
 
 ### Simulation Runner (`simulation.py`)
 
@@ -81,7 +85,7 @@ Checking all progenitors (not just the parent's species) prevents two failure mo
 
 ## Configuration
 
-The default config lives at `evolution_simulator/config/simulation.toml`. Copy and edit it for custom runs — it controls habitat topology, connection graph, creature counts, species threshold, and per-habitat type/seed overrides. Species name vocabulary is in `evolution_simulator/config/species_names.toml` (100 adjectives × 100 nouns).
+The default config lives at `evolution_simulator/config/simulation.toml`. Copy and edit it for custom runs — it controls habitat topology, connection graph, creature counts, `compatibility_threshold` / `respeciate_every` speciation knobs, and per-habitat type/seed overrides. Species name vocabulary is in `evolution_simulator/config/species_names.toml` (100 adjectives × 100 nouns).
 
 Each `[[habitats.instances]]` block can override `initial_species_per_habitat` and `creatures_per_species` locally. For a single-species isolation experiment, set `initial_species_per_habitat = 1` and a larger `creatures_per_species` on a habitat with no connections.
 
@@ -90,5 +94,6 @@ Each `[[habitats.instances]]` block can override `initial_species_per_habitat` a
 - `(cos θ + 1) / 2` resource geometry is central to local adaptation — don't replace it with cross-product/sin or explicit fitness scores. Aligned genes → P=1, orthogonal → P=0.5, anti-aligned → P=0
 - OWA trait aggregation (not plain mean) is deliberate: it makes individual mutations selectable by giving higher-valued loci more phenotypic weight. `OWA_ALPHA = 0.6` is the class-level default; change it on subclasses, not the base class
 - Migration events must not be applied within `Habitat.simulate_day()`; they must flow through `SimulationRunner.step()` to avoid double-simulation
-- Species assignment must compare against all progenitors, not just parent lineage
+- Speciation detection keys on the 245-dim `compatibility_genes` subset (the mating signal), compared against **living centroids** refreshed periodically — not full-genome frozen progenitors. Don't revert detection to the full genome or a frozen reference; that reintroduces drift-driven runaway speciation. The frozen full-genome type is retained only for naming + the future anagenesis axis
+- Species assignment must compare against all living species centroids, not just parent lineage
 - Founding creatures must start sexually viable so the first day produces mating events

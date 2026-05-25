@@ -26,6 +26,31 @@ def far_genes(seed: int = 99) -> np.ndarray:
     return np.random.default_rng(seed).standard_normal(GENE_DIMS)
 
 
+# Compatibility subset (the signal C2 speciation keys on) and its complement.
+COMPAT_IDX = np.array(DEFAULT_TRAIT_GENE_INDICES["compatibility_genes"], dtype=int)
+NON_COMPAT_IDX = np.array(
+    sorted(set(range(GENE_DIMS)) - set(COMPAT_IDX.tolist())), dtype=int
+)
+
+
+def _cos(a: np.ndarray, b: np.ndarray) -> float:
+    return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
+
+
+def with_new_compat(base: np.ndarray, seed: int) -> np.ndarray:
+    """Copy of base with ONLY the compatibility loci replaced (far in compat space)."""
+    g = base.copy()
+    g[COMPAT_IDX] = np.random.default_rng(seed).standard_normal(len(COMPAT_IDX))
+    return g
+
+
+def with_new_noncompat(base: np.ndarray, seed: int) -> np.ndarray:
+    """Copy of base with ONLY the non-compatibility loci replaced (identical in compat space)."""
+    g = base.copy()
+    g[NON_COMPAT_IDX] = np.random.default_rng(seed).standard_normal(len(NON_COMPAT_IDX))
+    return g
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -73,8 +98,14 @@ class TestRegistryInit:
         assert registry.speciation_events == []
 
     def test_custom_threshold(self):
-        reg = SpeciesRegistry(species_threshold=0.99)
-        assert reg.species_threshold == 0.99
+        reg = SpeciesRegistry(compatibility_threshold=0.99)
+        assert reg.compatibility_threshold == 0.99
+
+    def test_founder_seeds_living_centroid(self, registry_with_founder):
+        reg, _, name = registry_with_founder
+        # Registering a founder makes it a living species immediately.
+        assert reg.living_species_count == 1
+        assert reg.centroid(name) is not None
 
 
 # ---------------------------------------------------------------------------
@@ -298,6 +329,7 @@ class TestCandidatePromotion:
         assert ev["parent_species"] == founder_name
         assert ev["creature_id"] == first.creature_id
         assert ev["week"] == 10
+        assert ev["event_type"] == "cladogenesis"
 
     def test_promoted_species_name_is_adjective_noun(self, registry_with_founder):
         """The promoted species gets a valid adjective-noun name."""
@@ -486,6 +518,154 @@ class TestSimilarityToAll:
 # Unique name generation
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Detection keys on the compatibility subset only
+# ---------------------------------------------------------------------------
+
+class TestCompatibilitySignal:
+    def test_divergence_outside_compat_subset_does_not_speciate(self):
+        """A genome that differs from the founder ONLY outside the compatibility
+        loci stays the same species — full-genome drift is no longer the signal."""
+        rng = np.random.default_rng(3)
+        reg = SpeciesRegistry()
+        base = rng.standard_normal(GENE_DIMS)
+        founder = reg.register_founding_species(base, name="Base Dweller")
+
+        # Identical in the compatibility subset, wildly different elsewhere.
+        c = make_creature(with_new_noncompat(base, seed=50), parent_species=founder)
+        assigned = reg.assign_species(c)
+
+        assert assigned == founder
+        assert reg.species_count == 1
+        assert len(reg._candidates) == 0
+
+    def test_divergence_in_compat_subset_creates_candidate(self):
+        """A genome that differs from the founder in the compatibility loci is
+        reproductively isolated → candidate stage."""
+        rng = np.random.default_rng(3)
+        reg = SpeciesRegistry()
+        base = rng.standard_normal(GENE_DIMS)
+        founder = reg.register_founding_species(base, name="Base Dweller")
+
+        c = make_creature(with_new_compat(base, seed=50), parent_species=founder)
+        reg.assign_species(c)
+
+        assert reg.species_count == 1
+        assert len(reg._candidates) == 1
+
+
+# ---------------------------------------------------------------------------
+# refresh_centroids
+# ---------------------------------------------------------------------------
+
+class TestRefreshCentroids:
+    def test_centroid_is_member_compat_mean(self):
+        rng = np.random.default_rng(4)
+        reg = SpeciesRegistry()
+        base = rng.standard_normal(GENE_DIMS)
+        name = reg.register_founding_species(base, name="Mean Seeker")
+
+        members = [
+            make_creature(near_genes(base, noise=0.001, seed=i), parent_species=name)
+            for i in range(5)
+        ]
+        reg.refresh_centroids(members)
+
+        expected = np.mean([m.genes[COMPAT_IDX] for m in members], axis=0)
+        np.testing.assert_allclose(reg.centroid(name), expected, rtol=1e-6)
+
+    def test_extinct_species_pruned_from_living_set(self):
+        rng = np.random.default_rng(4)
+        reg = SpeciesRegistry()
+        a = reg.register_founding_species(rng.standard_normal(GENE_DIMS), name="Alive One")
+        b = reg.register_founding_species(rng.standard_normal(GENE_DIMS), name="Dead One")
+
+        # Only species A has living members at refresh time.
+        living = [make_creature(reg.progenitor_genes(a), parent_species=a) for _ in range(3)]
+        reg.refresh_centroids(living)
+
+        assert reg.species_count == 2          # both remain in the historical registry
+        assert reg.living_species_count == 1   # only A is a live comparison target
+        assert reg.centroid(b) is None
+        assert reg.centroid(a) is not None
+
+    def test_candidate_members_excluded_from_parent_centroid(self):
+        """Incipiently-divergent candidate members must not drag the parent
+        species' reproductive centre toward themselves."""
+        rng = np.random.default_rng(8)
+        reg = SpeciesRegistry()
+        base = rng.standard_normal(GENE_DIMS)
+        founder = reg.register_founding_species(base, name="Anchor Walker")
+
+        # Normal members near the founder.
+        normal = [
+            make_creature(near_genes(base, noise=0.001, seed=i), parent_species=founder)
+            for i in range(3)
+        ]
+        # A diverging cluster (far in compat space) — assigning makes them a
+        # candidate, but they keep the founder label.
+        far_compat = with_new_compat(base, seed=70)
+        candidate_members = [
+            make_creature(near_genes(far_compat, noise=0.001, seed=200 + i), parent_species=founder)
+            for i in range(4)
+        ]
+        for c in candidate_members:
+            reg.assign_species(c)
+        assert len(reg._candidates) == 1
+
+        reg.refresh_centroids(normal + candidate_members)
+
+        centroid = reg.centroid(founder)
+        # Centroid tracks the normal members, NOT the diverging candidate cluster.
+        assert _cos(centroid, base[COMPAT_IDX]) > 0.99
+        assert _cos(centroid, far_compat[COMPAT_IDX]) < reg.compatibility_threshold
+
+
+# ---------------------------------------------------------------------------
+# Regression: a uniformly drifting population stays ONE species
+# ---------------------------------------------------------------------------
+
+class TestDriftRegression:
+    def test_population_wide_drift_does_not_speciate(self):
+        """The core bug: with a frozen progenitor, a whole population drifting
+        together eventually falls below threshold and speciates.  With a living
+        centroid the reference moves with the population, so it does not."""
+        rng = np.random.default_rng(12)
+        reg = SpeciesRegistry()
+        base = rng.standard_normal(GENE_DIMS)
+        founder = reg.register_founding_species(base, name="Origin Drifter")
+
+        # The whole population has drifted far in the compatibility subset, but
+        # remains internally coherent (all near the new location).
+        drifted = with_new_compat(base, seed=33)
+        living = [
+            make_creature(near_genes(drifted, noise=0.001, seed=i), parent_species=founder)
+            for i in range(6)
+        ]
+        newborn_genes = near_genes(drifted, noise=0.001, seed=500)
+
+        # Before refresh: the newborn is far from the FOUNDING centroid — the old
+        # frozen-reference logic would have flagged it as a new species.
+        before_name, before_score = reg._closest_centroid(reg._compat(newborn_genes))
+        assert before_score < reg.compatibility_threshold
+        # And it has genuinely left the founding region.
+        assert _cos(reg._compat(newborn_genes), base[COMPAT_IDX]) < reg.compatibility_threshold
+
+        # Refresh moves the reference to the living population.
+        reg.refresh_centroids(living)
+        _, after_score = reg._closest_centroid(reg._compat(newborn_genes))
+        assert after_score >= reg.compatibility_threshold
+
+        # Assigning the newborn now keeps it in the same species — no candidate,
+        # no speciation event.
+        newborn = make_creature(newborn_genes, parent_species=founder)
+        assigned = reg.assign_species(newborn)
+        assert assigned == founder
+        assert reg.species_count == 1
+        assert len(reg._candidates) == 0
+        assert len(reg.speciation_events) == 0
+
+
 class TestUniqueNames:
     def test_generated_names_are_unique(self):
         reg = SpeciesRegistry()
@@ -513,7 +693,7 @@ class TestUniqueNames:
 class TestRepr:
     def test_repr_contains_species_count(self, registry_with_founder):
         reg, _, _ = registry_with_founder
-        assert "1 confirmed species" in repr(reg)
+        assert "1 species" in repr(reg)
 
     def test_repr_contains_candidate_count(self, registry_with_founder):
         reg, _, _ = registry_with_founder

@@ -115,11 +115,13 @@ class SimulationRunner:
 
         # --- Species registry ---
         species_cfg = self.config.get("species", {})
-        threshold = species_cfg.get("threshold", 0.95)
+        compat_threshold = species_cfg.get(
+            "compatibility_threshold", SpeciesRegistry.DEFAULT_COMPATIBILITY_THRESHOLD
+        )
         min_pop = species_cfg.get("min_species_population", SpeciesRegistry.DEFAULT_MIN_SPECIES_POPULATION)
         min_weeks = species_cfg.get("min_species_weeks", SpeciesRegistry.DEFAULT_MIN_SPECIES_WEEKS)
         self.species_registry = SpeciesRegistry(
-            species_threshold=threshold,
+            compatibility_threshold=compat_threshold,
             min_species_population=min_pop,
             min_species_weeks=min_weeks,
         )
@@ -294,11 +296,15 @@ class SimulationRunner:
                 "to_habitat": dest_hab.habitat_id,
             })
 
-        # Promote candidates that have met population + age criteria.
-        # This must happen after migrations so migrated creatures count toward
-        # candidate membership.  Promotions append to speciation_events, so
-        # they're included in new_speciations below.
+        # Refresh living centroids (the reproductive reference for speciation)
+        # and promote candidates that have met population + age criteria.  Both
+        # must happen after migrations so migrated creatures count toward their
+        # species centroid and toward candidate membership.  Promotions append
+        # to speciation_events, so they're included in new_speciations below.
         all_alive = [c for hab in self.habitats.values() for c in hab.alive_creatures]
+        respeciate_every = sim_cfg.get("respeciate_every", 10)
+        if self.week == 1 or (respeciate_every >= 1 and self.week % respeciate_every == 0):
+            self.species_registry.refresh_centroids(all_alive)
         self.species_registry.promote_candidates(all_alive, self.week)
 
         new_speciations = self.species_registry.speciation_events[prev_speciation_count:]
@@ -513,7 +519,11 @@ class SimulationRunner:
                 "creatures_per_species": sim_cfg.get("creatures_per_species", 10),
                 "initial_genome_noise": sim_cfg.get("initial_genome_noise", 0.05),
                 "isolation_probability": sim_cfg.get("isolation_probability", 0.001),
-                "species_threshold": self.config.get("species", {}).get("threshold", 0.95),
+                "compatibility_threshold": self.config.get("species", {}).get(
+                    "compatibility_threshold",
+                    SpeciesRegistry.DEFAULT_COMPATIBILITY_THRESHOLD,
+                ),
+                "respeciate_every": sim_cfg.get("respeciate_every", 10),
             },
             "habitats": [
                 {
