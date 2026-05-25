@@ -175,42 +175,73 @@ class SimulationRunner:
             random.seed(seed)
 
         self._founders_by_hab: dict[str, list[dict]] = {hid: [] for hid in self.habitats}
+        mirror = sim_cfg.get("mirror_founding_population", False)
 
-        for hab_id, hab in self.habitats.items():
-            inst_cfg = self._habitat_instance_config(hab_id)
-            n_species = inst_cfg.get("initial_species_per_habitat", global_n_species)
-            n_per = inst_cfg.get("creatures_per_species", global_n_per_species)
+        if mirror:
+            # Draw founding genomes once and register each as a species, then seed
+            # every habitat from those same genomes.  This lets isolated populations
+            # diverge from an identical starting point.
+            # habitat_bias is intentionally ignored: one founding genome cannot be
+            # simultaneously aligned to multiple different habitat vectors.
+            founding_specs: list[tuple[np.ndarray, str]] = []
+            for _ in range(global_n_species):
+                fg = rng.standard_normal(GENE_DIMS)
+                founding_specs.append((fg, self.species_registry.register_founding_species(fg)))
 
-            for sp_idx in range(n_species):
-                random_genes = rng.standard_normal(GENE_DIMS)
-                if habitat_bias > 0.0:
-                    # Mix random genes with a scaled habitat direction so creatures
-                    # start partially aligned to local resources.
-                    hab_dir = hab.vector / (np.linalg.norm(hab.vector) + 1e-10)
-                    hab_scaled = hab_dir * np.sqrt(GENE_DIMS)
-                    founding_genes = (1.0 - habitat_bias) * random_genes + habitat_bias * hab_scaled
-                else:
-                    founding_genes = random_genes
-                species_name = self.species_registry.register_founding_species(
-                    founding_genes
+            for hab_id, hab in self.habitats.items():
+                n_per = self._habitat_instance_config(hab_id).get(
+                    "creatures_per_species", global_n_per_species
                 )
+                for fg, sp_name in founding_specs:
+                    for i in range(n_per):
+                        genes = fg + rng.standard_normal(GENE_DIMS) * genome_noise
+                        creature = Creature(genes=genes)
+                        creature.sex = "female" if i % 2 == 0 else "male"
+                        creature.species = sp_name
+                        creature.age = creature.weeks_to_sexual_viability + 1
+                        hab.add_creature(creature)
+                        self._founders_by_hab[hab_id].append({
+                            "creature_id": creature.creature_id,
+                            "species": sp_name,
+                            "sex": creature.sex,
+                            "generation": 0,
+                        })
+        else:
+            for hab_id, hab in self.habitats.items():
+                inst_cfg = self._habitat_instance_config(hab_id)
+                n_species = inst_cfg.get("initial_species_per_habitat", global_n_species)
+                n_per = inst_cfg.get("creatures_per_species", global_n_per_species)
 
-                for i in range(n_per):
-                    genes = founding_genes + rng.standard_normal(GENE_DIMS) * genome_noise
-                    creature = Creature(genes=genes)
-                    # Assign a 50/50 sex split directly so mating is possible
-                    # regardless of what the founding genome's sex loci encode.
-                    creature.sex = "female" if i % 2 == 0 else "male"
-                    creature.species = species_name
-                    # Start at sexual maturity so mating begins on week 1.
-                    creature.age = creature.weeks_to_sexual_viability + 1
-                    hab.add_creature(creature)
-                    self._founders_by_hab[hab_id].append({
-                        "creature_id": creature.creature_id,
-                        "species": species_name,
-                        "sex": creature.sex,
-                        "generation": 0,
-                    })
+                for sp_idx in range(n_species):
+                    random_genes = rng.standard_normal(GENE_DIMS)
+                    if habitat_bias > 0.0:
+                        # Mix random genes with a scaled habitat direction so creatures
+                        # start partially aligned to local resources.
+                        hab_dir = hab.vector / (np.linalg.norm(hab.vector) + 1e-10)
+                        hab_scaled = hab_dir * np.sqrt(GENE_DIMS)
+                        founding_genes = (1.0 - habitat_bias) * random_genes + habitat_bias * hab_scaled
+                    else:
+                        founding_genes = random_genes
+                    species_name = self.species_registry.register_founding_species(
+                        founding_genes
+                    )
+
+                    for i in range(n_per):
+                        genes = founding_genes + rng.standard_normal(GENE_DIMS) * genome_noise
+                        creature = Creature(genes=genes)
+                        # Assign a 50/50 sex split directly so mating is possible
+                        # regardless of what the founding genome's sex loci encode.
+                        creature.sex = "female" if i % 2 == 0 else "male"
+                        creature.species = species_name
+                        # Start at sexual maturity so mating begins on week 1.
+                        creature.age = creature.weeks_to_sexual_viability + 1
+                        hab.add_creature(creature)
+                        self._founders_by_hab[hab_id].append({
+                            "creature_id": creature.creature_id,
+                            "species": species_name,
+                            "sex": creature.sex,
+                            "generation": 0,
+                        })
 
         total_pop = sum(h.population_size for h in self.habitats.values())
         logger.info(
