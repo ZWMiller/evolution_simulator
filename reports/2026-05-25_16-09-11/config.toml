@@ -1,0 +1,75 @@
+# parallel_divergence.toml
+#
+# Five isolated habitats, each seeded with the SAME three founding species
+# (identical founding genomes, fresh per-creature noise).  No connections,
+# no migration.  Watch independent lineages adapt to radically different
+# environments and diverge into distinct species from a common ancestor.
+#
+# Questions to investigate:
+#   - Do the same founding species speciate at different rates across habitats?
+#   - Do any habitats converge on similar genotypes despite independent evolution?
+#   - Which habitat types drive the most rapid cladogenesis vs. anagenesis?
+#   - Do any habitats collapse? (harsh environments with low starting alignment)
+#
+# 30 000 weeks ≈ 750–1 200 generations (generation ~25–40 weeks).
+# Logging every 50 weeks → 600 stat snapshots; events disabled for speed.
+# Respeciation checks every 50 weeks (matches log cadence).
+
+[simulation]
+weeks                       = 30000
+seed                        = 7
+output_dir                  = "simulation_logs"
+
+mirror_founding_population  = true   # all habitats start from the same 3 founding genomes
+initial_species_per_habitat = 3
+creatures_per_species       = 60     # 30 female + 30 male per species per habitat
+initial_genome_noise        = 0.05
+founding_habitat_bias       = 0.0    # ignored in mirror mode; explicit for clarity
+
+isolation_probability       = 0.0    # no connections → no migration, no route isolation
+
+stats_every                 = 50     # one snapshot per 50 weeks (~600 total)
+events_every                = 0      # disable per-event logs for speed
+respeciate_every            = 50     # refresh centroids + run detectors every 50 weeks
+
+[species]
+compatibility_threshold     = 0.65
+min_species_population      = 10
+min_species_weeks           = 60     # ~2 generations
+split_max_k                 = 5
+split_isolation_threshold   = 0.70
+anagenesis_threshold        = 0.93
+anagenesis_weeks            = 60
+
+[habitats]
+connections = []
+
+[[habitats.instances]]
+id   = "forest_1"
+type = "Forest"
+seed = 1
+name = "Forest"
+
+[[habitats.instances]]
+id   = "desert_1"
+type = "Desert"
+seed = 2
+name = "Desert"
+
+[[habitats.instances]]
+id   = "tundra_1"
+type = "Tundra"
+seed = 3
+name = "Tundra"
+
+[[habitats.instances]]
+id   = "wetlands_1"
+type = "Wetlands"
+seed = 4
+name = "Wetlands"
+
+[[habitats.instances]]
+id   = "plains_1"
+type = "Plains"
+seed = 5
+name = "Plains"
