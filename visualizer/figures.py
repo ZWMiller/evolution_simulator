@@ -291,24 +291,38 @@ def species_phylogeny(run: dict) -> go.Figure:
         counter[0] += 1  # vertical gap between independent trees
 
     # ── Edge traces ──────────────────────────────────────────────────────────
-    edge_x: list = []
-    edge_y: list = []
+    # Split edges by event type: cladogenesis (a true branch) is solid;
+    # anagenesis (in-place transformation, the ancestor often ending) is dashed.
+    clad_x: list = []
+    clad_y: list = []
+    ana_x: list = []
+    ana_y: list = []
     for sp, data in lineage.items():
         parent = data.get("parent")
         if parent and parent in positions and sp in positions:
             px, py = positions[parent]
             cx, cy = positions[sp]
             # L-shaped cladogram edge: horizontal from parent, then vertical to child
-            edge_x.extend([px, cx, cx, None])
-            edge_y.extend([py, py, cy, None])
+            if data.get("event_type") == "anagenesis":
+                ana_x.extend([px, cx, cx, None])
+                ana_y.extend([py, py, cy, None])
+            else:
+                clad_x.extend([px, cx, cx, None])
+                clad_y.extend([py, py, cy, None])
 
     fig = go.Figure()
 
-    if edge_x:
+    if clad_x:
         fig.add_trace(go.Scatter(
-            x=edge_x, y=edge_y, mode="lines",
+            x=clad_x, y=clad_y, mode="lines",
             line=dict(color="#2a5a2a", width=1),
-            hoverinfo="skip",
+            hoverinfo="skip", showlegend=False,
+        ))
+    if ana_x:
+        fig.add_trace(go.Scatter(
+            x=ana_x, y=ana_y, mode="lines",
+            line=dict(color="#b5792a", width=1, dash="dot"),
+            hoverinfo="skip", showlegend=False,
         ))
 
     # ── Node trace ───────────────────────────────────────────────────────────
@@ -323,15 +337,20 @@ def species_phylogeny(run: dict) -> go.Figure:
         f"{sp}<br>week: {lineage[sp].get('week', 0)}"
         f"<br>peak pop: {peak_pop.get(sp, 0)}"
         f"<br>parent: {lineage[sp].get('parent') or 'founder'}"
+        + ("" if lineage[sp].get("parent") is None
+           else f"<br>via: {lineage[sp].get('event_type', 'cladogenesis')}")
         for sp in node_sp
     ]
     node_customdata = [{"species": sp} for sp in node_sp]
 
-    # Colour founders differently from speciated species
-    node_colors = [
-        "#e4f4a0" if lineage[sp].get("parent") is None else "#56c456"
-        for sp in node_sp
-    ]
+    # Colour by origin: founder vs cladogenesis (split) vs anagenesis (transform)
+    def _node_color(sp: str) -> str:
+        d = lineage[sp]
+        if d.get("parent") is None:
+            return "#e4f4a0"
+        return "#e8a23d" if d.get("event_type") == "anagenesis" else "#56c456"
+
+    node_colors = [_node_color(sp) for sp in node_sp]
 
     fig.add_trace(go.Scatter(
         x=node_x, y=node_y, mode="markers+text",
@@ -358,7 +377,12 @@ def species_phylogeny(run: dict) -> go.Figure:
     fig.add_trace(go.Scatter(
         x=[None], y=[None], mode="markers",
         marker=dict(color="#56c456", size=10),
-        name="speciated species",
+        name="cladogenesis (split)",
+    ))
+    fig.add_trace(go.Scatter(
+        x=[None], y=[None], mode="markers",
+        marker=dict(color="#e8a23d", size=10),
+        name="anagenesis (transform)",
     ))
 
     all_weeks = run.get("all_weeks", [0])

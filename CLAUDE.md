@@ -12,11 +12,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Install dependencies
 poetry install
 
-# Run simulation with default config (365 days, 4 habitats)
+# Run simulation with default config (4 habitats)
 python runner.py
 
-# Run with custom config or day override
-python runner.py path/to/config.toml --days 500
+# Run with custom config or week override
+python runner.py path/to/config.toml --weeks 500
 
 # Run all tests
 poetry run pytest
@@ -30,7 +30,7 @@ poetry run pytest tests/test_creature.py::test_function_name
 
 ## Architecture
 
-The simulation is built around four core classes that interact in a strict data-flow order each day.
+The simulation is built around four core classes that interact in a strict data-flow order each week.
 
 ### Gene/Trait System (`creature.py`)
 
@@ -52,9 +52,9 @@ Each `Habitat` has its own 500-dim environment vector. Food/water discovery uses
 
 Each habitat type (`habitats/types.py`) has a fixed characteristic center vector seeded from a `TYPE_SEED` constant via `__init_subclass__`, with Gaussian per-instance noise layered on top.
 
-### Daily Simulation Order (`habitat.py:simulate_day`)
+### Weekly Simulation Order (`habitat.py:simulate_week`)
 
-Within a single day, `Habitat.simulate_day()` runs in this fixed order:
+Within a single week, `Habitat.simulate_week()` runs in this fixed order:
 1. Compute resource probabilities for all creatures (vectorized)
 2. Update energy/hydration; mark deaths
 3. Advance creature age and pregnancy timers
@@ -65,23 +65,48 @@ Within a single day, `Habitat.simulate_day()` runs in this fixed order:
 8. Add newborns and assign species via `SpeciesRegistry`
 9. Attempt spontaneous route isolation
 
-**Critical invariant**: migrations are returned as events, not applied inside `Habitat.simulate_day()`. `SimulationRunner.step()` processes all habitats first, then moves migrants — this prevents a creature from being simulated twice on the same day.
+**Critical invariant**: migrations are returned as events, not applied inside `Habitat.simulate_week()`. `SimulationRunner.step()` processes all habitats first, then moves migrants — this prevents a creature from being simulated twice in the same week.
 
 ### Species Detection (`species.py`)
 
-`SpeciesRegistry` maintains a list of progenitor gene vectors. At birth, a newborn's genome is compared to **every** registered progenitor via vectorized cosine similarity. It joins the closest existing species if the score exceeds `species_threshold` (default 0.75), otherwise a speciation event is declared.
+Speciation is detected on the **same signal that gates mating**: the 245-locus `compatibility_genes` subset. A newborn's compatibility sub-vector is compared by cosine similarity against the **living centroid** of every species that currently has members; it joins the nearest one if the score meets `compatibility_threshold` (default 0.65, a touch below the 0.70 `COMPATIBILITY_FLOOR`), otherwise it enters a candidate stage (two-stage gate: `min_species_population` + `min_species_weeks`) that may be promoted to a confirmed species. This is the Biological Species Concept — a species boundary means "can no longer interbreed with that population."
 
-Checking all progenitors (not just the parent's species) prevents two failure modes: drift-back (a lineage re-approaching an ancestral region would otherwise be logged as a new species) and convergent evolution (two lineages converging on the same genetic region would otherwise be counted twice).
+**Why living centroids, not frozen progenitors**: the reproductive reference is the *current* population, refreshed every `respeciate_every` weeks (`SpeciesRegistry.refresh_centroids`, called from `SimulationRunner.step()` after migrations). When a whole interbreeding population drifts together the centroid drifts with it, so ordinary drift never trips a speciation event — this is the fix for the historical runaway-speciation bug. Candidate members are *excluded* from their parent species' centroid so an incipient split can pull away cleanly.
+
+**Two references per species**: each confirmed species keeps a frozen full-genome **type** (`progenitor_genes`, anchors the name and feeds the anagenesis axis) *and* a living 245-dim compatibility **centroid** (`centroid`, used for detection). Comparison is against **all living species** (not just the parent), preventing drift-back and convergent-evolution false positives.
+
+**Three speciation mechanisms.** Beyond the per-newborn membership test above, two periodic detectors run on the `respeciate_every` cadence (`SimulationRunner.step()`, week 1 and every Nth week). Order matters and is fixed: `detect_subcluster_splits` → `refresh_centroids` → `detect_anagenesis`, then `promote_candidates` runs **every** week.
+
+1. **Cladogenesis split detector** (`detect_subcluster_splits`): a single living centroid masks a population that has split into two reproductively-isolated modes — the two clusters sit symmetrically around their midpoint centroid, so no individual newborn ever falls below threshold. For each species with ≥ `2·min_species_population` non-candidate members, the members are clustered in compatibility space via spherical k-means (`_select_clusters` sweeps K=2..`split_max_k` and picks the **largest K whose cluster centroids are all mutually below** `split_isolation_threshold`, i.e. the mating floor; K=1 = no split). The cluster nearest the frozen type keeps the name; each other cluster seeds or extends a **candidate**, so promotion flows through the same two-stage gate. Runs *before* `refresh_centroids` so split-off members are excluded from the parent centroid. Event `event_type: "cladogenesis"`.
+
+2. **Anagenesis detector** (`detect_anagenesis`): catches a lineage that has **transformed in place** without ever splitting (chronospecies — "dogs from wolves" still interbreed, so the BSC/compatibility axis cannot separate them). It measures a separate **phenotype** axis: the 32-trait `PHENOTYPE_TRAITS` raw-OWA vector (`compute_phenotype_matrix`), compared to the species' frozen-type phenotype by cosine **centered on 0.5** (phenotype values live in `[0,1]`, where raw cosine compresses toward 1; centering measures the trait-deviation pattern over the full `[-1,1]` range). When that cosine falls below `anagenesis_threshold` *and* stays below for `anagenesis_weeks` (a **persistence gate** — `_anagenesis_pending` tracks the first week it dipped, and a rebound resets the clock so transient dips aren't named), the lineage is respeciated: members are partitioned by closest phenotype between the new centroid and the frozen type (the name follows the type). Species with an active split candidate this cycle are skipped. Event `event_type: "anagenesis"`.
+
+Phenotype drift is selection-bounded, not unbounded: it plateaus around 0.94 because adaptation chases a fixed habitat optimum, which is why `anagenesis_threshold` is 0.93 (not, say, 0.90) and why anagenesis only surfaces on long runs.
+
+Every speciation event carries an `event_type` field (`"cladogenesis"` | `"anagenesis"`) so the phylogeny renders splits vs. in-place transformation distinctly.
 
 ### Simulation Runner (`simulation.py`)
 
-`SimulationRunner` owns habitat construction, population seeding, and JSON log output. Founding creatures start at `age = days_to_sexual_viability + 1` so mating begins on day 1. Each day writes a `day_NNNNN.json` with full event data; a `summary.json` is written at the end (including an `"extinct": bool` field).
+`SimulationRunner` owns habitat construction, population seeding, and JSON log output. Founding creatures start at `age = weeks_to_sexual_viability + 1` so mating begins in week 1. Each week writes a `week_NNNNN.json` (subject to the `stats_every` / `events_every` logging cadences); a `summary.json` is written at the end (including an `"extinct": bool` field).
 
 `run()` checks global population after each step and halts early on extinction. `runner.py` does the same in its own step loop and also calls `_write_summary()` directly — note that `runner.py` drives its own loop and does NOT call `run()`.
 
 ## Configuration
 
-The default config lives at `evolution_simulator/config/simulation.toml`. Copy and edit it for custom runs — it controls habitat topology, connection graph, creature counts, species threshold, and per-habitat type/seed overrides. Species name vocabulary is in `evolution_simulator/config/species_names.toml` (100 adjectives × 100 nouns).
+The default config lives at `evolution_simulator/config/simulation.toml`. Copy and edit it for custom runs — it controls habitat topology, connection graph, creature counts, the speciation knobs, and per-habitat type/seed overrides. Species name vocabulary is in `evolution_simulator/config/species_names.toml` (100 adjectives × 100 nouns).
+
+Speciation knobs (defaults shown are the *class* defaults in `SpeciesRegistry`; the bundled configs deliberately raise the gates to generation-scale, ~2 generations at ~25–35 weeks each):
+
+| Key | Section | Class default | Config value | Meaning |
+|---|---|---|---|---|
+| `compatibility_threshold` | `[species]` | 0.65 | 0.65 | newborn-vs-living-centroid cosine to join a species (just below the 0.70 mating floor) |
+| `respeciate_every` | `[simulation]` | 10 | 10 | weeks between centroid refreshes + the cadence on which both periodic detectors run |
+| `min_species_population` | `[species]` | 3 | 10 | living members a candidate needs before promotion (and ≥2× this to attempt a split) |
+| `min_species_weeks` | `[species]` | 5 | 60 | weeks a candidate must persist before promotion |
+| `split_max_k` | `[species]` | 5 | 5 | max sub-clusters the split detector will sweep K up to |
+| `split_isolation_threshold` | `[species]` | 0.70 (`COMPATIBILITY_FLOOR`) | 0.70 | sub-cluster centroids must be mutually below this to count as a split |
+| `anagenesis_threshold` | `[species]` | 0.93 | 0.93 | centered phenotype cosine (type vs living centroid) below which anagenesis triggers |
+| `anagenesis_weeks` | `[species]` | 60 | 60 | persistence: weeks the phenotype must stay diverged before the lineage is respeciated |
 
 Each `[[habitats.instances]]` block can override `initial_species_per_habitat` and `creatures_per_species` locally. For a single-species isolation experiment, set `initial_species_per_habitat = 1` and a larger `creatures_per_species` on a habitat with no connections.
 
@@ -89,6 +114,9 @@ Each `[[habitats.instances]]` block can override `initial_species_per_habitat` a
 
 - `(cos θ + 1) / 2` resource geometry is central to local adaptation — don't replace it with cross-product/sin or explicit fitness scores. Aligned genes → P=1, orthogonal → P=0.5, anti-aligned → P=0
 - OWA trait aggregation (not plain mean) is deliberate: it makes individual mutations selectable by giving higher-valued loci more phenotypic weight. `OWA_ALPHA = 0.6` is the class-level default; change it on subclasses, not the base class
-- Migration events must not be applied within `Habitat.simulate_day()`; they must flow through `SimulationRunner.step()` to avoid double-simulation
-- Species assignment must compare against all progenitors, not just parent lineage
-- Founding creatures must start sexually viable so the first day produces mating events
+- Migration events must not be applied within `Habitat.simulate_week()`; they must flow through `SimulationRunner.step()` to avoid double-simulation
+- Speciation detection keys on the 245-dim `compatibility_genes` subset (the mating signal), compared against **living centroids** refreshed periodically — not full-genome frozen progenitors. Don't revert detection to the full genome or a frozen reference; that reintroduces drift-driven runaway speciation. The frozen full-genome type is retained for naming + the anagenesis axis
+- Species assignment must compare against all living species centroids, not just parent lineage
+- The two periodic detectors run in a fixed order: `detect_subcluster_splits` → `refresh_centroids` → `detect_anagenesis`. The split detector must run *before* the refresh so split-off members are excluded from the parent centroid
+- The anagenesis axis is the **phenotype** vector (raw OWA, centered on 0.5 for cosine), measured against the frozen type — it is deliberately a *different* signal from the compatibility axis, because a transformed-but-still-interfertile lineage (chronospecies) is invisible to the reproductive-isolation test
+- Founding creatures must start sexually viable so the first week produces mating events

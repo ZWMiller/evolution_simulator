@@ -7,6 +7,7 @@ from evolution_simulator.habitat import (
     DEFAULT_WATER_GENE_INDICES,
     HABITAT_VECTOR_DIMS,
     LOGGED_TRAITS,
+    _batch_compute_traits,
 )
 
 
@@ -575,6 +576,68 @@ class TestComputeStats:
         stats = habitat.compute_stats()
         assert stats["Alpha"]["count"] == 3
         assert stats["Beta"]["count"] == 2
+
+
+# ---------------------------------------------------------------------------
+# Vectorized trait computation equivalence
+# ---------------------------------------------------------------------------
+
+class TestBatchComputeTraits:
+    def _make_creatures(self, n: int, seed: int = 42) -> list:
+        rng = np.random.default_rng(seed)
+        creatures = []
+        for i in range(n):
+            c = Creature(genes=rng.standard_normal(GENE_DIMS))
+            c.sex = "female" if i % 2 == 0 else "male"
+            creatures.append(c)
+        return creatures
+
+    def test_matches_getattr_per_creature_per_trait(self):
+        """Vectorized values must round-trip to the same 4-decimal value as getattr."""
+        creatures = self._make_creatures(30)
+        matrix = _batch_compute_traits(creatures)
+
+        for i, c in enumerate(creatures):
+            for j, trait in enumerate(LOGGED_TRAITS):
+                expected = round(getattr(c, trait), 4)
+                actual   = round(float(matrix[i, j]), 4)
+                assert actual == expected, (
+                    f"Trait '{trait}' mismatch for creature {i}: "
+                    f"batch={actual}, getattr={expected}"
+                )
+
+    def test_int_traits_are_floor_truncated(self):
+        """reproduction_time, weeks_to_sexual_viability, max_lifespan must be ints."""
+        creatures = self._make_creatures(10)
+        matrix = _batch_compute_traits(creatures)
+        int_traits = {"reproduction_time", "weeks_to_sexual_viability", "max_lifespan"}
+        for j, trait in enumerate(LOGGED_TRAITS):
+            if trait in int_traits:
+                col = matrix[:, j]
+                assert np.all(col == np.floor(col)), (
+                    f"Trait '{trait}' should be floor-truncated, got {col}"
+                )
+
+    def test_compute_stats_mean_traits_match_getattr(self, habitat):
+        """compute_stats mean_traits must match the per-creature getattr mean."""
+        rng = np.random.default_rng(7)
+        creatures = []
+        for i in range(20):
+            c = Creature(genes=rng.standard_normal(GENE_DIMS))
+            c.sex = "female" if i % 2 == 0 else "male"
+            c.species = "TestSpecies"
+            habitat.add_creature(c)
+            creatures.append(c)
+
+        stats = habitat.compute_stats()
+        mean_traits = stats["TestSpecies"]["mean_traits"]
+
+        for trait in LOGGED_TRAITS:
+            expected = round(sum(getattr(c, trait) for c in creatures) / len(creatures), 4)
+            actual   = mean_traits[trait]
+            assert actual == expected, (
+                f"mean_traits['{trait}']: batch={actual}, getattr-mean={expected}"
+            )
 
 
 # ---------------------------------------------------------------------------

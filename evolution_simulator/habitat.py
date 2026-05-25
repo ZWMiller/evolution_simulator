@@ -54,6 +54,101 @@ LOGGED_TRAITS: tuple[str, ...] = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Vectorized trait computation helpers (used by compute_stats)
+# ---------------------------------------------------------------------------
+
+# Maps each LOGGED_TRAITS property name to the key used by _compute_trait.
+# All names match: every property calls _compute_trait with its own name.
+_TRAIT_INTERNAL_KEY: dict[str, str] = {t: t for t in LOGGED_TRAITS}
+
+# Scaling table: (offset, scale, is_int) for each LOGGED_TRAIT.
+# Replicates the property definitions in creature.py exactly.
+# is_int=True means floor-truncation is applied per-creature before averaging,
+# matching int(offset + scale * raw) rather than the incorrect int(mean).
+_TRAIT_SCALING: dict[str, tuple] = {
+    "fecundity":                 (1.0,   7.0,   False),
+    "reproduction_time":         (1.0,   19.0,  True),
+    "weeks_to_sexual_viability": (4.0,   46.0,  True),
+    "parental_investment":       (0.0,   1.0,   False),
+    "reproduction_likelihood":   (0.0,   1.0,   False),
+    "metabolism":                (0.5,   1.5,   False),
+    "water_efficiency":          (0.0,   1.0,   False),
+    "max_lifespan":              (40.0,  360.0, True),
+    "disease_resistance":        (0.0,   1.0,   False),
+    "immune_response":           (0.0,   1.0,   False),
+    "stress_tolerance":          (0.0,   1.0,   False),
+    "heat_tolerance":            (0.0,   1.0,   False),
+    "cold_tolerance":            (0.0,   1.0,   False),
+    "drought_tolerance":         (0.0,   1.0,   False),
+    "hibernation_tendency":      (0.0,   1.0,   False),
+    "migration_likelihood":      (0.0,   1.0,   False),
+    "risk_tolerance":            (0.0,   1.0,   False),
+    "aggression":                (0.0,   1.0,   False),
+    "territorial":               (0.0,   1.0,   False),
+    "social_tendency":           (0.0,   1.0,   False),
+    "nocturnal_tendency":        (0.0,   1.0,   False),
+    "size":                      (0.0,   1.0,   False),
+    "strength":                  (0.0,   1.0,   False),
+    "speed":                     (0.0,   1.0,   False),
+    "camouflage":                (0.0,   1.0,   False),
+    "foraging_ability":          (0.0,   1.0,   False),
+    "intelligence":              (0.0,   1.0,   False),
+    "adaptability":              (0.0,   1.0,   False),
+    "pack_hunting":              (0.0,   1.0,   False),
+    "scavenging_tendency":       (0.0,   1.0,   False),
+    "communication":             (0.0,   1.0,   False),
+    "mutation_rate":             (0.001, 0.049, False),
+    "selectivity":               (0.0,   1.0,   False),
+    "base_predation_rate":       (0.0,   0.005, False),
+}
+
+
+def _batch_compute_traits(creatures: list) -> np.ndarray:
+    """
+    Vectorized OWA trait computation for all LOGGED_TRAITS across a list of creatures.
+
+    Replicates the per-creature _compute_trait + property scaling exactly:
+      1. Stack genes into (N, 500).
+      2. For each trait: fancy-index the relevant loci, sort descending per row,
+         apply normalised OWA weights, sigmoid → raw [0,1] value.
+      3. Apply each trait's (offset, scale) and floor-truncate int-valued traits
+         per creature before averaging, so mean(int(f(x))) is preserved rather
+         than the incorrect int(mean(f(x))).
+
+    Returns (N, len(LOGGED_TRAITS)) float64 array of scaled values.
+    Uses the first creature's class for TRAIT_GENE_INDICES and OWA_ALPHA.
+    """
+    N = len(creatures)
+    cls = creatures[0].__class__
+    alpha: float = cls.OWA_ALPHA
+    gene_matrix: np.ndarray = np.stack([c.genes for c in creatures])  # (N, 500)
+
+    result = np.empty((N, len(LOGGED_TRAITS)), dtype=np.float64)
+    for j, trait in enumerate(LOGGED_TRAITS):
+        key = _TRAIT_INTERNAL_KEY[trait]
+        indices = cls.TRAIT_GENE_INDICES[key]
+        k = len(indices)
+
+        vals = gene_matrix[:, indices]                 # (N, k)
+        sorted_vals = np.sort(vals, axis=1)[:, ::-1]  # descending per row
+
+        i_arr = np.arange(k, dtype=np.float64)
+        weights = alpha * (1.0 - alpha) ** i_arr
+        weights /= weights.sum()
+
+        raw = sorted_vals @ weights                    # (N,)
+        sigmoid_vals = 1.0 / (1.0 + np.exp(-raw))     # (N,) ∈ [0, 1]
+
+        offset, scale, is_int = _TRAIT_SCALING[trait]
+        scaled = offset + scale * sigmoid_vals
+        if is_int:
+            scaled = np.floor(scaled)
+        result[:, j] = scaled
+
+    return result
+
+
 DEFAULT_FOOD_GENE_INDICES: list[int] = (
     list(range(37, 80))     # foraging ability, water efficiency, intelligence loci
     + list(range(110, 170)) # size, strength, speed, physiology loci
@@ -595,32 +690,31 @@ class Habitat:
         food_probs = self.food_likelihoods(alive)
         water_probs = self.water_likelihoods(alive)
 
-        groups: dict[str, list] = {}
-        group_food: dict[str, list] = {}
-        group_water: dict[str, list] = {}
+        # Batch-compute all scaled trait values and generations for the full
+        # alive population at once, then slice per-species with index arrays.
+        trait_matrix = _batch_compute_traits(alive)  # (N, len(LOGGED_TRAITS))
+        generations = np.fromiter(
+            (c.generation for c in alive), dtype=np.float64, count=len(alive)
+        )
+
+        species_indices: dict[str, list[int]] = {}
         for i, c in enumerate(alive):
-            sp = c.species
-            if sp not in groups:
-                groups[sp] = []
-                group_food[sp] = []
-                group_water[sp] = []
-            groups[sp].append(c)
-            group_food[sp].append(float(food_probs[i]))
-            group_water[sp].append(float(water_probs[i]))
+            species_indices.setdefault(c.species, []).append(i)
 
         stats: dict[str, dict] = {}
-        for sp_name, creatures in groups.items():
-            n = len(creatures)
-            mean_traits = {
-                t: round(sum(getattr(c, t) for c in creatures) / n, 4)
-                for t in LOGGED_TRAITS
-            }
+        for sp_name, idx in species_indices.items():
+            idx_arr = np.array(idx, dtype=np.intp)
+            n = len(idx_arr)
+            sp_means = trait_matrix[idx_arr].mean(axis=0)  # (len(LOGGED_TRAITS),)
             stats[sp_name] = {
                 "count": n,
-                "mean_food_prob": round(float(np.mean(group_food[sp_name])), 4),
-                "mean_water_prob": round(float(np.mean(group_water[sp_name])), 4),
-                "mean_generation": round(sum(c.generation for c in creatures) / n, 2),
-                "mean_traits": mean_traits,
+                "mean_food_prob":  round(float(food_probs[idx_arr].mean()),  4),
+                "mean_water_prob": round(float(water_probs[idx_arr].mean()), 4),
+                "mean_generation": round(float(generations[idx_arr].mean()), 2),
+                "mean_traits": {
+                    t: round(float(sp_means[j]), 4)
+                    for j, t in enumerate(LOGGED_TRAITS)
+                },
             }
 
         return stats

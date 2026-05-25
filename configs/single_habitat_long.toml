@@ -1,0 +1,38 @@
+# Single-habitat long run — speciation observation
+# stats every 20 weeks, no per-event detail
+
+[simulation]
+weeks = 2000
+seed = 42
+founding_habitat_bias = 0.55
+output_dir = "simulation_logs"
+
+initial_species_per_habitat = 3
+creatures_per_species = 15
+initial_genome_noise = 0.12
+
+# No migration routes → no isolation events, clean speciation signal
+isolation_probability = 0.0
+
+stats_every = 20
+events_every = 0
+respeciate_every = 10   # weeks between living-centroid refreshes
+
+[species]
+# Compatibility-subset cosine vs each living species' centroid (see default
+# config for the full explanation).  A touch below the 0.70 mating floor.
+compatibility_threshold = 0.65
+# Generation-scaled speciation gates (see default config for rationale).
+min_species_population = 10
+min_species_weeks = 60
+anagenesis_threshold = 0.93
+anagenesis_weeks = 60
+
+[habitats]
+connections = []
+
+[[habitats.instances]]
+id   = "plains_1"
+type = "Plains"
+seed = 7
+name = "Central Plains"

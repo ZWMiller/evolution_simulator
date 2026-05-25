@@ -94,8 +94,8 @@ Examples:
         week_log = runner.step()
         elapsed = time.perf_counter() - t0
 
-        week_births = sum(len(h["births"]) for h in week_log["habitats"].values())
-        week_deaths = sum(len(h["deaths"]) for h in week_log["habitats"].values())
+        week_births = week_log["births_this_week"]
+        week_deaths = week_log["deaths_this_week"]
         total_births += week_births
         total_deaths += week_deaths
 

@@ -18,9 +18,17 @@ creatures_per_species       = 500    # 250F + 250M
 initial_genome_noise        = 0.10   # enough per-creature variation for natural selection
 founding_habitat_bias       = 0.30   # 30% aligned to forest vector → ~65% initial food prob
 isolation_probability       = 0.0    # no routes to sever (isolated by design)
+respeciate_every            = 10     # weeks between living-centroid refreshes
 
 [species]
-threshold = 0.60
+# Compatibility-subset cosine vs each living species' centroid (see default
+# config for the full explanation).  A touch below the 0.70 mating floor.
+compatibility_threshold = 0.65
+# Generation-scaled speciation gates (see default config for rationale).
+min_species_population = 10
+min_species_weeks = 60
+anagenesis_threshold = 0.93
+anagenesis_weeks = 60
 
 [habitats]
 connections = []   # no connections — fully isolated

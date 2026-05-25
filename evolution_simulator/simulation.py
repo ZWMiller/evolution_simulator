@@ -34,6 +34,7 @@ a visualiser.
 
 import json
 import logging
+import random
 import shutil
 import tomllib
 import numpy as np
@@ -113,8 +114,31 @@ class SimulationRunner:
         logger.info("Log directory: %s", self.log_dir)
 
         # --- Species registry ---
-        threshold = self.config.get("species", {}).get("threshold", 0.95)
-        self.species_registry = SpeciesRegistry(species_threshold=threshold)
+        species_cfg = self.config.get("species", {})
+        compat_threshold = species_cfg.get(
+            "compatibility_threshold", SpeciesRegistry.DEFAULT_COMPATIBILITY_THRESHOLD
+        )
+        min_pop = species_cfg.get("min_species_population", SpeciesRegistry.DEFAULT_MIN_SPECIES_POPULATION)
+        min_weeks = species_cfg.get("min_species_weeks", SpeciesRegistry.DEFAULT_MIN_SPECIES_WEEKS)
+        split_max_k = species_cfg.get("split_max_k", SpeciesRegistry.DEFAULT_SPLIT_MAX_K)
+        split_isolation = species_cfg.get(
+            "split_isolation_threshold", SpeciesRegistry.DEFAULT_SPLIT_ISOLATION_THRESHOLD
+        )
+        anagenesis_threshold = species_cfg.get(
+            "anagenesis_threshold", SpeciesRegistry.DEFAULT_ANAGENESIS_THRESHOLD
+        )
+        anagenesis_weeks = species_cfg.get(
+            "anagenesis_weeks", SpeciesRegistry.DEFAULT_ANAGENESIS_WEEKS
+        )
+        self.species_registry = SpeciesRegistry(
+            compatibility_threshold=compat_threshold,
+            min_species_population=min_pop,
+            min_species_weeks=min_weeks,
+            split_max_k=split_max_k,
+            split_isolation_threshold=split_isolation,
+            anagenesis_threshold=anagenesis_threshold,
+            anagenesis_weeks=anagenesis_weeks,
+        )
 
         # --- Habitats ---
         for inst in self.config["habitats"]["instances"]:
@@ -142,6 +166,13 @@ class SimulationRunner:
         habitat_bias = sim_cfg.get("founding_habitat_bias", 0.0)
         seed = sim_cfg.get("seed", None)
         rng = np.random.default_rng(seed)
+        # Seed the global RNGs so the full run is reproducible from `seed`.
+        # habitat.py and creature.py use the global np.random.* singleton and
+        # stdlib random; without this they are OS-initialised and differ between
+        # runs even with the same config seed.
+        if seed is not None:
+            np.random.seed(seed)
+            random.seed(seed)
 
         self._founders_by_hab: dict[str, list[dict]] = {hid: [] for hid in self.habitats}
 
@@ -223,20 +254,41 @@ class SimulationRunner:
         """
         Advance the simulation by one week.
 
-        1. Runs simulate_week() on every habitat.
-        2. Applies all pending migrations (creatures move after all habitats
-           have been processed, so no creature is simulated twice in one week).
-        3. Builds and writes the week's JSON log.
+        Always (every week):
+          1. Runs simulate_week() on every habitat.
+          2. Applies all pending migrations (after all habitats are processed,
+             so no creature is simulated twice in one week).
+          3. Stamps the current week onto any new speciation events.
+          4. Tallies hybridization events.
+          5. Computes cheap global aggregates (population, species count,
+             births/deaths counts) needed for progress display + extinction.
 
-        Returns the full week log dict.
+        Two independent cadences decide what (if anything) is written this week:
+          - stats_every  gates the expensive per-species/per-habitat statistics
+            (compute_stats()).
+          - events_every gates the per-event detail (individual births, deaths,
+            mating attempts, migrations, speciation events, isolations).
+        A week_NNNNN.json is written if EITHER is due. Week 1 and the final week
+        always get at least a statistics snapshot.
+
+        Returns a dict. When a file is written it is the (possibly partial) week
+        log. When nothing is due it is a lightweight summary. In all cases the
+        returned dict contains every field runner.py / run() reads:
+            week, logged, stats_logged, events_logged,
+            global_population, global_species_count,
+            births_this_week, deaths_this_week
         """
         self.week += 1
-        iso_prob = self.config["simulation"].get("isolation_probability", 0.001)
+        sim_cfg = self.config["simulation"]
+        iso_prob = sim_cfg.get("isolation_probability", 0.001)
 
         habitat_results: dict[str, dict] = {}
         pending_migrations: list[tuple] = []  # (creature, from_hab_id, dest_habitat)
 
         prev_speciation_count = len(self.species_registry.speciation_events)
+        # current_week must be set before simulate_week so assign_species records
+        # the correct detected_week on any new candidates.
+        self.species_registry.current_week = self.week
 
         for hab_id, hab in self.habitats.items():
             result = hab.simulate_week(
@@ -258,17 +310,68 @@ class SimulationRunner:
                 "to_habitat": dest_hab.habitat_id,
             })
 
+        # Refresh living centroids (the reproductive reference for speciation)
+        # and promote candidates that have met population + age criteria.  Both
+        # must happen after migrations so migrated creatures count toward their
+        # species centroid and toward candidate membership.  Promotions append
+        # to speciation_events, so they're included in new_speciations below.
+        all_alive = [c for hab in self.habitats.values() for c in hab.alive_creatures]
+        respeciate_every = sim_cfg.get("respeciate_every", 10)
+        if self.week == 1 or (respeciate_every >= 1 and self.week % respeciate_every == 0):
+            # Order matters: seed split candidates first so their members are
+            # excluded from the parent centroid in the refresh that follows;
+            # then detect whole-lineage transformation (anagenesis).
+            self.species_registry.detect_subcluster_splits(all_alive, self.week)
+            self.species_registry.refresh_centroids(all_alive)
+            self.species_registry.detect_anagenesis(all_alive, self.week)
+        self.species_registry.promote_candidates(all_alive, self.week)
+
         new_speciations = self.species_registry.speciation_events[prev_speciation_count:]
         for ev in new_speciations:
-            ev["week"] = self.week
+            if "week" not in ev:
+                ev["week"] = self.week
 
         for result in habitat_results.values():
             for ev in result.get("mating_events", []):
                 if "hybridization" in ev:
                     self._total_hybridization_events += 1
 
-        week_log = self._build_week_log(habitat_results, migration_log, new_speciations)
-        self._write_week_log(week_log)
+        # --- Cheap aggregates, computed EVERY week (progress + extinction) ---
+        total_pop = sum(h.population_size for h in self.habitats.values())
+        births_this_week = sum(len(r["births"]) for r in habitat_results.values())
+        deaths_this_week = sum(
+            len(r["deaths"]) + len(r.get("predation_deaths", []))
+            for r in habitat_results.values()
+        )
+
+        # --- Decide what to write this week ---
+        stats_every = sim_cfg.get("stats_every", 1)
+        events_every = sim_cfg.get("events_every", 1)
+        total_weeks = sim_cfg.get("weeks", 0)
+
+        is_endpoint = (self.week == 1) or (self.week == total_weeks)
+        stats_due = is_endpoint or (stats_every >= 1 and self.week % stats_every == 0)
+        events_due = (events_every >= 1 and self.week % events_every == 0)
+
+        if stats_due or events_due:
+            week_log = self._build_week_log(
+                habitat_results, migration_log, new_speciations,
+                include_stats=stats_due, include_events=events_due,
+            )
+            self._write_week_log(week_log)
+            week_log["logged"] = True
+        else:
+            week_log = {
+                "week": self.week,
+                "logged": False,
+                "global_population": total_pop,
+                "global_species_count": self.species_registry.species_count,
+            }
+
+        week_log["stats_logged"] = stats_due
+        week_log["events_logged"] = events_due
+        week_log["births_this_week"] = births_this_week
+        week_log["deaths_this_week"] = deaths_this_week
         return week_log
 
     # ------------------------------------------------------------------
@@ -280,8 +383,14 @@ class SimulationRunner:
         habitat_results: dict[str, dict],
         migration_log: list[dict],
         new_speciations: list[dict],
+        *,
+        include_stats: bool = True,
+        include_events: bool = True,
     ) -> dict:
-        # Global tallies
+        # ------------------------------------------------------------------
+        # (A) Cheap global header — ALWAYS present (visualizer hard-requires
+        #     week / global_population / global_species_count).
+        # ------------------------------------------------------------------
         species_counts: Counter = Counter()
         total_pop = 0
         for hab in self.habitats.values():
@@ -289,113 +398,125 @@ class SimulationRunner:
                 species_counts[c.species] += 1
                 total_pop += 1
 
-        # ------------------------------------------------------------------
-        # Habitat stats + species stats (computed after migrations applied)
-        # ------------------------------------------------------------------
-        habitat_stats: dict = {}
-        # Accumulators for species-level aggregation
-        sp_total: dict[str, int] = {}
-        sp_hab_counts: dict[str, dict[str, int]] = {}
-        sp_trait_sums: dict[str, dict[str, float]] = {}
-        sp_generation_sums: dict[str, float] = {}
-
-        for hab_id, hab in self.habitats.items():
-            stats = hab.compute_stats()
-            habitat_stats[hab_id] = {
-                "habitat_id": hab_id,
-                "habitat_name": hab.name,
-                "habitat_type": self.habitat_types.get(hab_id, "Unknown"),
-                "by_species": stats,
-            }
-            for sp_name, sp_data in stats.items():
-                n = sp_data["count"]
-                if sp_name not in sp_total:
-                    sp_total[sp_name] = 0
-                    sp_hab_counts[sp_name] = {}
-                    sp_trait_sums[sp_name] = {t: 0.0 for t in LOGGED_TRAITS}
-                    sp_generation_sums[sp_name] = 0.0
-                sp_total[sp_name] += n
-                sp_hab_counts[sp_name][hab_id] = n
-                for t in LOGGED_TRAITS:
-                    sp_trait_sums[sp_name][t] += sp_data["mean_traits"][t] * n
-                sp_generation_sums[sp_name] += sp_data.get("mean_generation", 0.0) * n
-
-        species_stats: dict = {}
-        for sp_name, n in sp_total.items():
-            species_stats[sp_name] = {
-                "total_count": n,
-                "habitat_counts": sp_hab_counts[sp_name],
-                "mean_generation": round(sp_generation_sums[sp_name] / n, 2),
-                "mean_traits": {
-                    t: round(sp_trait_sums[sp_name][t] / n, 4)
-                    for t in LOGGED_TRAITS
-                },
-            }
+        week_log: dict = {
+            "week": self.week,
+            "timestamp": datetime.now().isoformat(),
+            "global_population": total_pop,
+            "global_species_count": self.species_registry.species_count,
+        }
 
         # ------------------------------------------------------------------
-        # Per-habitat event log
+        # (B) Cheap per-habitat skeleton — ALWAYS present: id/type/name,
+        #     population, species_distribution. Event detail added in (D).
         # ------------------------------------------------------------------
         habitats_log: dict = {}
         for hab_id, result in habitat_results.items():
             hab = self.habitats[hab_id]
-            hab_species = Counter(c.species for c in hab.alive_creatures)
-
-            # Combine resource/age deaths and predation deaths into one list
-            all_death_ids = result["deaths"] + result.get("predation_deaths", [])
-            deaths_detail = []
-            for cid in all_death_ids:
-                creature_log = result["week_results"].get(cid, {})
-                deaths_detail.append({
-                    "creature_id": cid,
-                    "cause": creature_log.get("cause_of_death"),
-                    "age": creature_log.get("age"),
-                })
-
-            births_detail = [
-                {
-                    "creature_id": c.creature_id,
-                    "species": c.species,
-                    "sex": c.sex,
-                    "generation": c.generation,
-                    "parents": [p.creature_id for p in c.parents] if c.parents else [],
-                }
-                for c in result["births"]
-            ]
-
-            migrations_out = [
-                {
-                    "creature_id": c.creature_id,
-                    "species": c.species,
-                    "to_habitat": dest.habitat_id,
-                }
-                for c, dest in result["migrations"]
-            ]
-
             habitats_log[hab_id] = {
                 "habitat_id": result["habitat_id"],
                 "habitat_type": self.habitat_types.get(hab_id, "Unknown"),
                 "habitat_name": hab.name,
                 "population": result["population"],
-                "species_distribution": dict(hab_species),
-                "births": births_detail,
-                "deaths": deaths_detail,
-                "mating_events": result.get("mating_events", []),
-                "migrations_out": migrations_out,
-                "isolations": result["isolations"],
+                "species_distribution": dict(
+                    Counter(c.species for c in hab.alive_creatures)
+                ),
             }
 
-        return {
-            "week": self.week,
-            "timestamp": datetime.now().isoformat(),
-            "global_population": total_pop,
-            "global_species_count": self.species_registry.species_count,
-            "global_species_distribution": dict(species_counts),
-            "speciation_events": new_speciations,
-            "migrations": migration_log,
-            "habitat_stats": habitat_stats,
-            "species_stats": species_stats,
-            "habitats": habitats_log,
-        }
+        # ------------------------------------------------------------------
+        # (C) EXPENSIVE statistics — only when include_stats.
+        # ------------------------------------------------------------------
+        if include_stats:
+            week_log["global_species_distribution"] = dict(species_counts)
+
+            habitat_stats: dict = {}
+            sp_total: dict[str, int] = {}
+            sp_hab_counts: dict[str, dict[str, int]] = {}
+            sp_trait_sums: dict[str, dict[str, float]] = {}
+            sp_generation_sums: dict[str, float] = {}
+
+            for hab_id, hab in self.habitats.items():
+                stats = hab.compute_stats()
+                habitat_stats[hab_id] = {
+                    "habitat_id": hab_id,
+                    "habitat_name": hab.name,
+                    "habitat_type": self.habitat_types.get(hab_id, "Unknown"),
+                    "by_species": stats,
+                }
+                for sp_name, sp_data in stats.items():
+                    n = sp_data["count"]
+                    if sp_name not in sp_total:
+                        sp_total[sp_name] = 0
+                        sp_hab_counts[sp_name] = {}
+                        sp_trait_sums[sp_name] = {t: 0.0 for t in LOGGED_TRAITS}
+                        sp_generation_sums[sp_name] = 0.0
+                    sp_total[sp_name] += n
+                    sp_hab_counts[sp_name][hab_id] = n
+                    for t in LOGGED_TRAITS:
+                        sp_trait_sums[sp_name][t] += sp_data["mean_traits"][t] * n
+                    sp_generation_sums[sp_name] += sp_data.get("mean_generation", 0.0) * n
+
+            species_stats: dict = {}
+            for sp_name, n in sp_total.items():
+                species_stats[sp_name] = {
+                    "total_count": n,
+                    "habitat_counts": sp_hab_counts[sp_name],
+                    "mean_generation": round(sp_generation_sums[sp_name] / n, 2),
+                    "mean_traits": {
+                        t: round(sp_trait_sums[sp_name][t] / n, 4)
+                        for t in LOGGED_TRAITS
+                    },
+                }
+
+            week_log["habitat_stats"] = habitat_stats
+            week_log["species_stats"] = species_stats
+
+        # ------------------------------------------------------------------
+        # (D) EXPENSIVE event detail — only when include_events.
+        # ------------------------------------------------------------------
+        if include_events:
+            for hab_id, result in habitat_results.items():
+                all_death_ids = result["deaths"] + result.get("predation_deaths", [])
+                deaths_detail = []
+                for cid in all_death_ids:
+                    creature_log = result["week_results"].get(cid, {})
+                    deaths_detail.append({
+                        "creature_id": cid,
+                        "cause": creature_log.get("cause_of_death"),
+                        "age": creature_log.get("age"),
+                    })
+
+                births_detail = [
+                    {
+                        "creature_id": c.creature_id,
+                        "species": c.species,
+                        "sex": c.sex,
+                        "generation": c.generation,
+                        "parents": [p.creature_id for p in c.parents] if c.parents else [],
+                    }
+                    for c in result["births"]
+                ]
+
+                migrations_out = [
+                    {
+                        "creature_id": c.creature_id,
+                        "species": c.species,
+                        "to_habitat": dest.habitat_id,
+                    }
+                    for c, dest in result["migrations"]
+                ]
+
+                entry = habitats_log[hab_id]
+                entry["births"] = births_detail
+                entry["deaths"] = deaths_detail
+                entry["mating_events"] = result.get("mating_events", [])
+                entry["migrations_out"] = migrations_out
+                entry["isolations"] = result["isolations"]
+
+            week_log["speciation_events"] = new_speciations
+            week_log["migrations"] = migration_log
+
+        week_log["habitats"] = habitats_log
+        return week_log
 
     # ------------------------------------------------------------------
     # File I/O
@@ -417,7 +538,24 @@ class SimulationRunner:
                 "creatures_per_species": sim_cfg.get("creatures_per_species", 10),
                 "initial_genome_noise": sim_cfg.get("initial_genome_noise", 0.05),
                 "isolation_probability": sim_cfg.get("isolation_probability", 0.001),
-                "species_threshold": self.config.get("species", {}).get("threshold", 0.95),
+                "compatibility_threshold": self.config.get("species", {}).get(
+                    "compatibility_threshold",
+                    SpeciesRegistry.DEFAULT_COMPATIBILITY_THRESHOLD,
+                ),
+                "respeciate_every": sim_cfg.get("respeciate_every", 10),
+                "split_max_k": self.config.get("species", {}).get(
+                    "split_max_k", SpeciesRegistry.DEFAULT_SPLIT_MAX_K
+                ),
+                "split_isolation_threshold": self.config.get("species", {}).get(
+                    "split_isolation_threshold",
+                    SpeciesRegistry.DEFAULT_SPLIT_ISOLATION_THRESHOLD,
+                ),
+                "anagenesis_threshold": self.config.get("species", {}).get(
+                    "anagenesis_threshold", SpeciesRegistry.DEFAULT_ANAGENESIS_THRESHOLD
+                ),
+                "anagenesis_weeks": self.config.get("species", {}).get(
+                    "anagenesis_weeks", SpeciesRegistry.DEFAULT_ANAGENESIS_WEEKS
+                ),
             },
             "habitats": [
                 {
@@ -445,6 +583,7 @@ class SimulationRunner:
             "total_speciation_events": len(self.species_registry.speciation_events),
             "total_hybridization_events": self._total_hybridization_events,
             "all_speciation_events": self.species_registry.speciation_events,
+            "all_failed_speciation_attempts": self.species_registry.failed_speciation_attempts,
             "final_species_distribution": {
                 hab_id: dict(Counter(c.species for c in hab.alive_creatures))
                 for hab_id, hab in self.habitats.items()

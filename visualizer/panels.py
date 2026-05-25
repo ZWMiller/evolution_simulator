@@ -199,7 +199,8 @@ def _global(state: dict, run: dict, day: int) -> list:
     if recent:
         items.append(_section(f"RECENT SPECIATIONS (last {len(recent)})", [
             html.Div(
-                f"week {ev.get('week', ev_day):>4}  {ev['new_species']}  ← {ev['parent_species']}",
+                f"week {ev.get('week', ev_day):>4}  {ev['new_species']}  ← {ev['parent_species']}"
+                f"  · {ev.get('event_type', 'cladogenesis')}",
                 style=_s(color=DIMTEXT, fontSize="12px", marginBottom="3px",
                          fontFamily=FONT, whiteSpace="nowrap",
                          overflow="hidden", textOverflow="ellipsis"),
