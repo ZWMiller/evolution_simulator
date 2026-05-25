@@ -4,6 +4,25 @@ Cross-machine task tracking for active development items.
 
 ---
 
+## Immediate / Next Session
+
+### Run visualizer on parallel divergence experiment
+
+Log dir: `simulation_logs/2026-05-25_16-09-11/`
+Report:  `reports/2026-05-25_16-09-11/2026-05-25_16-09-11_Report.md`
+
+Run `python visualizer_advanced.py` (or `visualizer_basic.py`), load that run,
+and review the phylogeny, species timeline, and trait trajectories.  Key things
+to look for:
+- The burst of 6 anagenesis events in Forest (weeks 6050–6950) — does the
+  phylogeny render them as a clean chain of in-place transformations?
+- The r/K life-history split across Plains/Wetlands/Forest in the trait panels
+- Desert and Tundra extinction timing
+Update the report (`reports/2026-05-25_16-09-11/2026-05-25_16-09-11_Report.md`)
+with any additional findings from the visual review.
+
+---
+
 ## In Progress
 
 ### Configurable logging cadence (PLANNING_TEMP.md Phase 1 — DONE)
