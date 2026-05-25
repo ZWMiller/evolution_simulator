@@ -43,10 +43,15 @@ import numpy as np
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
-from .creature import DEFAULT_TRAIT_GENE_INDICES
+from .creature import (
+    DEFAULT_TRAIT_GENE_INDICES,
+    Creature,
+    compute_phenotype,
+    compute_phenotype_matrix,
+)
 
 if TYPE_CHECKING:
-    from .creature import Creature
+    pass
 
 # ---------------------------------------------------------------------------
 # Config loading
@@ -163,6 +168,16 @@ class SpeciesRegistry:
     DEFAULT_COMPATIBILITY_THRESHOLD: float = 0.65
     DEFAULT_MIN_SPECIES_POPULATION: int = 3
     DEFAULT_MIN_SPECIES_WEEKS: int = 5
+    DEFAULT_SPLIT_MAX_K: int = 5
+    DEFAULT_SPLIT_ISOLATION_THRESHOLD: float = Creature.COMPATIBILITY_FLOOR
+    # Centred phenotype-centroid-vs-type cosine.  A 12k-week (~370-generation)
+    # run showed phenotype drift PLATEAUS: the most-transformed living lineages
+    # bottom out around ~0.92–0.94 (median ~0.97), so ~0.93 fires only for the
+    # genuinely transformed and stays rare.  anagenesis_weeks then requires the
+    # transformation to PERSIST before a descendant is minted, so a transient
+    # dip that rebounds is not named.
+    DEFAULT_ANAGENESIS_THRESHOLD: float = 0.93
+    DEFAULT_ANAGENESIS_WEEKS: int = 60
 
     def __init__(
         self,
@@ -171,10 +186,20 @@ class SpeciesRegistry:
         min_species_population: int = DEFAULT_MIN_SPECIES_POPULATION,
         min_species_weeks: int = DEFAULT_MIN_SPECIES_WEEKS,
         compat_indices: Optional[list[int]] = None,
+        split_max_k: int = DEFAULT_SPLIT_MAX_K,
+        split_isolation_threshold: float = DEFAULT_SPLIT_ISOLATION_THRESHOLD,
+        anagenesis_threshold: float = DEFAULT_ANAGENESIS_THRESHOLD,
+        anagenesis_weeks: int = DEFAULT_ANAGENESIS_WEEKS,
     ):
         self.compatibility_threshold: float = compatibility_threshold
         self.min_species_population: int = min_species_population
         self.min_species_weeks: int = min_species_weeks
+        # Sub-cluster split (cladogenesis) detection
+        self.split_max_k: int = split_max_k
+        self.split_isolation_threshold: float = split_isolation_threshold
+        # Anagenesis (phenotype drift from frozen type) detection
+        self.anagenesis_threshold: float = anagenesis_threshold
+        self.anagenesis_weeks: int = anagenesis_weeks
         if compat_indices is None:
             compat_indices = DEFAULT_TRAIT_GENE_INDICES["compatibility_genes"]
         self._compat_indices: np.ndarray = np.asarray(compat_indices, dtype=int)
@@ -193,6 +218,13 @@ class SpeciesRegistry:
         self._centroids: dict[str, np.ndarray] = {}
         self._centroid_matrix: Optional[np.ndarray] = None  # (M, 245)
         self._centroid_order: list[str] = []
+
+        # name → frozen TYPE phenotype vector (raw [0,1] PHENOTYPE_TRAITS).
+        # The anchored reference for the anagenesis axis.
+        self._type_phenotype: dict[str, np.ndarray] = {}
+        # species name → first week its phenotype centroid was seen below the
+        # anagenesis threshold (the persistence clock; cleared if it rebounds).
+        self._anagenesis_pending: dict[str, int] = {}
 
         # Chronological log of every confirmed speciation event (each carries
         # an "event_type": currently always "cladogenesis").
@@ -395,6 +427,169 @@ class SpeciesRegistry:
 
         return promoted_events
 
+    def detect_subcluster_splits(
+        self, alive_creatures: "list[Creature]", current_week: int
+    ) -> None:
+        """
+        Detect reproductive-isolation splits WITHIN a species (cladogenesis).
+
+        Run periodically, BEFORE refresh_centroids, so any sub-cluster it seeds
+        as a candidate is excluded from the parent species' refreshed centroid.
+        For each species, its living members (excluding creatures already in a
+        candidate) are clustered in compatibility space; if they fall into 2+
+        mutually reproductively-isolated sub-clusters, the cluster closest to the
+        frozen type keeps the species name and each other cluster seeds (or
+        extends) a candidate.  Promotion/aging/relabelling then flow through the
+        existing two-stage gate (promote_candidates).
+
+        This is what catches allopatric/sympatric divergence that a single
+        species centroid masks: two habitat-adapted populations sharing one label
+        sit symmetrically around their midpoint centroid, so newborns never
+        individually fall below threshold — but their members form two clusters,
+        which this detects directly.
+        """
+        candidate_member_ids: set[str] = set()
+        for cand in self._candidates.values():
+            candidate_member_ids |= cand["members"]
+
+        by_species: dict[str, list] = {}
+        for c in alive_creatures:
+            if c.creature_id in candidate_member_ids:
+                continue
+            if c.species in self._registry:
+                by_species.setdefault(c.species, []).append(c)
+
+        for sp, members in by_species.items():
+            if len(members) < 2 * self.min_species_population:
+                continue
+            compat = np.stack([self._compat(c.genes) for c in members])
+            units = self._unit_rows(compat)
+            labels, centroids = self._select_clusters(units, seed=current_week)
+            if centroids.shape[0] == 1:
+                continue
+
+            type_unit = self._unit_rows(
+                self._compat(self._registry[sp])[np.newaxis, :]
+            )[0]
+            primary = int(np.argmax(centroids @ type_unit))
+
+            for j in range(centroids.shape[0]):
+                if j == primary:
+                    continue
+                idx = [i for i, lab in enumerate(labels) if lab == j]
+                if len(idx) < self.min_species_population:
+                    continue
+                sub_members = [members[i] for i in idx]
+                sub_centroid = centroids[j]
+
+                cid, score = self._closest_candidate(sub_centroid)
+                if cid is not None and score >= self.compatibility_threshold:
+                    cand = self._candidates[cid]
+                    for m in sub_members:
+                        cand["members"].add(m.creature_id)
+                    cand["peak_members"] = max(cand["peak_members"], len(cand["members"]))
+                else:
+                    rep = max(sub_members, key=lambda m: float(
+                        self._unit_rows(self._compat(m.genes)[np.newaxis, :])[0]
+                        @ sub_centroid
+                    ))
+                    new_cid = f"cand_{self._next_candidate_id}"
+                    self._next_candidate_id += 1
+                    self._candidates[new_cid] = {
+                        "genes": rep.genes.copy(),
+                        "compat": self._compat(rep.genes).copy(),
+                        "parent_species": sp,
+                        "detected_week": current_week,
+                        "members": {m.creature_id for m in sub_members},
+                        "first_creature_id": rep.creature_id,
+                        "peak_members": len(sub_members),
+                    }
+
+    def detect_anagenesis(
+        self, alive_creatures: "list[Creature]", current_week: int
+    ) -> list[dict]:
+        """
+        Detect a lineage that has TRANSFORMED over time without splitting
+        (anagenesis / chronospecies).
+
+        For each living species — skipping any with an active split candidate
+        this cycle — compare its living phenotype centroid to its frozen type
+        phenotype.  If cosine has fallen below anagenesis_threshold, mint a
+        descendant species and respeciate living members by closest phenotype:
+        members nearer the new centroid join the descendant; members still nearer
+        the type keep the old name (the name follows the type).  If every member
+        moves, the ancestor simply has no living members (pure anagenesis /
+        lineage replacement); dead ancestors keep their labels — the log is the
+        fossil record.
+
+        Returns the list of anagenesis events created this call.
+        """
+        split_parents = {cand["parent_species"] for cand in self._candidates.values()}
+
+        by_species: dict[str, list] = {}
+        for c in alive_creatures:
+            if c.species in self._registry:
+                by_species.setdefault(c.species, []).append(c)
+
+        events: list[dict] = []
+        for sp, members in by_species.items():
+            if sp in split_parents:
+                self._anagenesis_pending.pop(sp, None)
+                continue
+            if len(members) < self.min_species_population:
+                continue
+            ph = compute_phenotype_matrix(np.stack([m.genes for m in members]))
+            centroid = ph.mean(axis=0)
+            type_ph = self._type_phenotype[sp]
+            # Phenotype values live in [0, 1] (the positive orthant), where raw
+            # cosine is compressed toward 1 and a threshold like 0.80 is almost
+            # unreachable.  Centre on 0.5 so the comparison measures the trait
+            # DEVIATION pattern (correlation-like, full [-1, 1] range): a lineage
+            # that shifts many traits in a consistent direction then reads as a
+            # large angle away from its ancestral form.
+            phc = ph - 0.5
+            cc = centroid - 0.5
+            tc = type_ph - 0.5
+            if self._cos(cc, tc) >= self.anagenesis_threshold:
+                self._anagenesis_pending.pop(sp, None)  # rebounded → reset clock
+                continue
+
+            # Persistence gate: the transformation must hold below threshold for
+            # anagenesis_weeks before a descendant is named, so a transient dip
+            # that rebounds is not mistaken for a chronospecies boundary.
+            first_seen = self._anagenesis_pending.setdefault(sp, current_week)
+            if current_week - first_seen < self.anagenesis_weeks:
+                continue
+
+            mover_pairs = [
+                (i, m) for i, m in enumerate(members)
+                if self._cos(phc[i], cc) > self._cos(phc[i], tc)
+            ]
+            if len(mover_pairs) < self.min_species_population:
+                continue
+
+            rep = max(mover_pairs, key=lambda im: self._cos(phc[im[0]], cc))[1]
+            movers = [m for _, m in mover_pairs]
+            mover_compat = np.mean(
+                np.stack([self._compat(m.genes) for m in movers]), axis=0
+            )
+            new_name = self._unique_name()
+            self._add_to_registry(new_name, rep.genes, centroid=mover_compat)
+            for m in movers:
+                m.species = new_name
+            ev = {
+                "new_species": new_name,
+                "parent_species": sp,
+                "creature_id": rep.creature_id,
+                "week": current_week,
+                "event_type": "anagenesis",
+            }
+            self.speciation_events.append(ev)
+            events.append(ev)
+            self._anagenesis_pending.pop(sp, None)
+
+        return events
+
     def similarity_to_all_progenitors(self, creature: "Creature") -> dict[str, float]:
         """
         Full-genome cosine similarity between *creature* and every species'
@@ -472,6 +667,9 @@ class SpeciesRegistry:
         self._centroids[name] = seed.copy()
         self._rebuild_centroid_matrix()
 
+        # Anchor the anagenesis reference: the type genome's phenotype.
+        self._type_phenotype[name] = compute_phenotype(genes)
+
     def _rebuild_centroid_matrix(self) -> None:
         """Restack the living-centroid matrix from self._centroids."""
         if not self._centroids:
@@ -516,6 +714,170 @@ class SpeciesRegistry:
                 best_score = sim
                 best_cid = cid
         return best_cid, best_score
+
+    # ------------------------------------------------------------------
+    # Spherical k-means (for sub-cluster split detection)
+    # ------------------------------------------------------------------
+    # We need to partition a species' members in COSINE geometry, because
+    # cosine is the metric that governs mating compatibility.  "Spherical"
+    # k-means is ordinary k-means run on L2-normalized vectors: once every
+    # point lies on the unit sphere, squared Euclidean distance and cosine are
+    # equivalent objectives —
+    #     ||x - c||^2 = 2 - 2 (x . c)     for unit x, c
+    # so minimizing Euclidean distortion is the same as maximizing cosine
+    # similarity to the assigned centre.  Implemented in numpy rather than
+    # scikit-learn: at this scale (small per-species n, dim 245, K <=
+    # split_max_k, run only every respeciate_every weeks) the optimised library
+    # buys nothing and would add a heavy sklearn+scipy dependency.
+
+    @staticmethod
+    def _cos(a: np.ndarray, b: np.ndarray) -> float:
+        """Cosine similarity of two vectors in [-1, 1] (0 if either is ~zero)."""
+        na = float(np.linalg.norm(a))
+        nb = float(np.linalg.norm(b))
+        if na < 1e-12 or nb < 1e-12:
+            return 0.0
+        return float(np.clip(np.dot(a, b) / (na * nb), -1.0, 1.0))
+
+    @staticmethod
+    def _unit_rows(mat: np.ndarray) -> np.ndarray:
+        """
+        Project each row onto the unit sphere (L2-normalize).
+
+        This is the step that turns ordinary k-means into *spherical* k-means:
+        on unit vectors, the dot product X @ Cᵀ IS the cosine similarity, so all
+        downstream assignment and centroid maths operate in cosine geometry.
+        Zero-length rows are left unscaled to avoid division by zero.
+        """
+        norms = np.linalg.norm(mat, axis=1, keepdims=True)
+        norms = np.where(norms < 1e-12, 1.0, norms)
+        return mat / norms
+
+    @staticmethod
+    def _kmeanspp_init(X: np.ndarray, k: int, rng: np.random.Generator) -> np.ndarray:
+        """
+        Choose k initial centres with k-means++ (cosine variant).
+
+        k-means++ spreads the seeds out so Lloyd's iterations are far less
+        likely to land in a poor local optimum than uniform-random seeding:
+
+          1. Pick the first centre uniformly at random from the points.
+          2. For every point compute its cosine distance (1 - cosine) to the
+             NEAREST centre chosen so far.
+          3. Pick the next centre at random with probability proportional to
+             that distance — points far from all current centres are the most
+             likely to be chosen.
+          4. Repeat 2-3 until k centres are chosen.
+
+        X is assumed to have unit rows, so ``X @ centresᵀ`` is cosine similarity.
+        """
+        n = X.shape[0]
+        centroids = [X[rng.integers(n)]]
+        for _ in range(1, k):
+            sims = X @ np.stack(centroids).T            # (n, chosen) cosine
+            dist = np.clip(1.0 - sims.max(axis=1), 0.0, None)  # dist to nearest centre
+            total = float(dist.sum())
+            if total <= 1e-12:                          # all points coincide
+                centroids.append(X[rng.integers(n)])
+            else:
+                centroids.append(X[rng.choice(n, p=dist / total)])
+        return np.stack(centroids)
+
+    def _spherical_kmeans(
+        self, X: np.ndarray, k: int, seed: int, n_init: int = 3, max_iter: int = 50
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Cluster unit-row matrix X into k clusters with spherical k-means.
+
+        Runs Lloyd's algorithm ``n_init`` times from independent k-means++
+        seedings and keeps the best result, where "best" maximizes the total
+        cosine similarity of points to their assigned centre (the spherical
+        analogue of minimizing k-means inertia).
+
+        Each Lloyd iteration:
+          - **Assign**: label every point by its most-similar centre
+            (``argmax`` of the cosine matrix ``X @ centresᵀ``).
+          - **Update**: recompute each centre as the *spherical mean* of its
+            members — sum the member unit vectors and re-normalize, which is the
+            point on the sphere maximizing summed cosine to the cluster.
+          - An emptied cluster is reseeded to a random point so k clusters are
+            always returned.
+          - Iteration stops once labels stop changing (converged) or after
+            ``max_iter`` sweeps.
+
+        ``seed`` makes the result deterministic (the whole simulation is
+        seeded), so repeated runs reproduce the same partition.
+
+        Returns
+        -------
+        (labels, centroids) : labels is (n,) int; centroids is (k, d) with UNIT
+        rows, so callers can take dot products as cosines directly.
+        """
+        rng = np.random.default_rng(seed)
+        n = X.shape[0]
+        best_labels: Optional[np.ndarray] = None
+        best_centroids: Optional[np.ndarray] = None
+        best_inertia = -np.inf                          # total cosine-to-centre; maximize
+        for _ in range(n_init):
+            centroids = self._kmeanspp_init(X, k, rng)
+            labels = np.full(n, -1, dtype=int)
+            for _ in range(max_iter):
+                new_labels = np.argmax(X @ centroids.T, axis=1)   # assign
+                for j in range(k):                                # update
+                    pts = X[new_labels == j]
+                    if len(pts) == 0:
+                        centroids[j] = X[rng.integers(n)]         # reseed empty cluster
+                    else:
+                        c = pts.sum(axis=0)
+                        nrm = float(np.linalg.norm(c))
+                        centroids[j] = c / nrm if nrm > 1e-12 else pts[0]  # spherical mean
+                if np.array_equal(new_labels, labels):
+                    labels = new_labels
+                    break                                          # converged
+                labels = new_labels
+            inertia = float((X @ centroids.T)[np.arange(n), labels].sum())
+            if inertia > best_inertia:
+                best_inertia = inertia
+                best_labels = labels.copy()
+                best_centroids = centroids.copy()
+        return best_labels, best_centroids
+
+    def _select_clusters(
+        self, X: np.ndarray, seed: int
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Pick the number of reproductively-isolated sub-clusters in X.
+
+        Sweeps K = 1..split_max_k and returns ``(labels, unit centroids)`` for
+        the LARGEST K that is a *valid* partition, where valid means:
+          - every cluster has at least ``min_species_population`` members, and
+          - all cluster centres are mutually below ``split_isolation_threshold``
+            (i.e. every pair of sub-clusters has stopped interbreeding).
+
+        Taking the largest valid K makes "K" equal the number of genuinely
+        isolated groups: over-splitting a real group produces two centres that
+        are still *above* the isolation threshold, which fails the test, so the
+        sweep settles back to the true count.  K = 1 is the default when no
+        larger K qualifies — a single coherent (still-interbreeding) population
+        is therefore never split, because any 2-way split of it leaves the two
+        halves above the isolation threshold.
+        """
+        n = X.shape[0]
+        mean = X.sum(axis=0)
+        nrm = float(np.linalg.norm(mean))
+        mean = mean / nrm if nrm > 1e-12 else X[0]
+        best = (np.zeros(n, dtype=int), mean[np.newaxis, :])      # K = 1 fallback
+
+        kmax = min(self.split_max_k, n // self.min_species_population)
+        for k in range(2, kmax + 1):
+            labels, centroids = self._spherical_kmeans(X, k, seed + k)
+            if (np.bincount(labels, minlength=k) < self.min_species_population).any():
+                continue                                          # a cluster too small
+            pairwise = centroids @ centroids.T                    # cosine (unit centres)
+            iu = np.triu_indices(k, k=1)
+            if float(pairwise[iu].max()) < self.split_isolation_threshold:
+                best = (labels, centroids)                        # mutually isolated → valid
+        return best
 
     def _register_new_species(
         self, creature: "Creature", parent_species: Optional[str]

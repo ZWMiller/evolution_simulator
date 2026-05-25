@@ -120,10 +120,24 @@ class SimulationRunner:
         )
         min_pop = species_cfg.get("min_species_population", SpeciesRegistry.DEFAULT_MIN_SPECIES_POPULATION)
         min_weeks = species_cfg.get("min_species_weeks", SpeciesRegistry.DEFAULT_MIN_SPECIES_WEEKS)
+        split_max_k = species_cfg.get("split_max_k", SpeciesRegistry.DEFAULT_SPLIT_MAX_K)
+        split_isolation = species_cfg.get(
+            "split_isolation_threshold", SpeciesRegistry.DEFAULT_SPLIT_ISOLATION_THRESHOLD
+        )
+        anagenesis_threshold = species_cfg.get(
+            "anagenesis_threshold", SpeciesRegistry.DEFAULT_ANAGENESIS_THRESHOLD
+        )
+        anagenesis_weeks = species_cfg.get(
+            "anagenesis_weeks", SpeciesRegistry.DEFAULT_ANAGENESIS_WEEKS
+        )
         self.species_registry = SpeciesRegistry(
             compatibility_threshold=compat_threshold,
             min_species_population=min_pop,
             min_species_weeks=min_weeks,
+            split_max_k=split_max_k,
+            split_isolation_threshold=split_isolation,
+            anagenesis_threshold=anagenesis_threshold,
+            anagenesis_weeks=anagenesis_weeks,
         )
 
         # --- Habitats ---
@@ -304,7 +318,12 @@ class SimulationRunner:
         all_alive = [c for hab in self.habitats.values() for c in hab.alive_creatures]
         respeciate_every = sim_cfg.get("respeciate_every", 10)
         if self.week == 1 or (respeciate_every >= 1 and self.week % respeciate_every == 0):
+            # Order matters: seed split candidates first so their members are
+            # excluded from the parent centroid in the refresh that follows;
+            # then detect whole-lineage transformation (anagenesis).
+            self.species_registry.detect_subcluster_splits(all_alive, self.week)
             self.species_registry.refresh_centroids(all_alive)
+            self.species_registry.detect_anagenesis(all_alive, self.week)
         self.species_registry.promote_candidates(all_alive, self.week)
 
         new_speciations = self.species_registry.speciation_events[prev_speciation_count:]
@@ -524,6 +543,19 @@ class SimulationRunner:
                     SpeciesRegistry.DEFAULT_COMPATIBILITY_THRESHOLD,
                 ),
                 "respeciate_every": sim_cfg.get("respeciate_every", 10),
+                "split_max_k": self.config.get("species", {}).get(
+                    "split_max_k", SpeciesRegistry.DEFAULT_SPLIT_MAX_K
+                ),
+                "split_isolation_threshold": self.config.get("species", {}).get(
+                    "split_isolation_threshold",
+                    SpeciesRegistry.DEFAULT_SPLIT_ISOLATION_THRESHOLD,
+                ),
+                "anagenesis_threshold": self.config.get("species", {}).get(
+                    "anagenesis_threshold", SpeciesRegistry.DEFAULT_ANAGENESIS_THRESHOLD
+                ),
+                "anagenesis_weeks": self.config.get("species", {}).get(
+                    "anagenesis_weeks", SpeciesRegistry.DEFAULT_ANAGENESIS_WEEKS
+                ),
             },
             "habitats": [
                 {

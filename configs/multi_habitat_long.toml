@@ -23,7 +23,11 @@ respeciate_every = 10   # weeks between living-centroid refreshes
 # Compatibility-subset cosine vs each living species' centroid (see default
 # config for the full explanation).  A touch below the 0.70 mating floor.
 compatibility_threshold = 0.65
-min_species_population = 3
+# Generation-scaled speciation gates (see default config for rationale).
+min_species_population = 10
+min_species_weeks = 60
+anagenesis_threshold = 0.93
+anagenesis_weeks = 60
 min_species_weeks = 5
 
 [habitats]

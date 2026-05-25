@@ -149,6 +149,8 @@ def load_run(log_dir: Path) -> dict:
             "parent": parent_sp,
             "week": ev.get("week", 0),
             "creature_id": ev.get("creature_id"),
+            # "cladogenesis" (a split) vs "anagenesis" (in-place transformation).
+            "event_type": ev.get("event_type", "cladogenesis"),
             "children": [],
         }
         if parent_sp and parent_sp in species_lineage:

@@ -810,3 +810,70 @@ class Creature:
             f"Creature(id={self.creature_id[:8]}…, age={self.age}, {status}, "
             f"parents={len(self.parents)})"
         )
+
+
+# ---------------------------------------------------------------------------
+# Phenotype vector (for anagenesis / morphological-divergence detection)
+# ---------------------------------------------------------------------------
+# The "phenotype" is the set of ecological/physical/physiological/cognitive
+# traits a biologist would actually diagnose — deliberately EXCLUDING the
+# genetic-machinery traits (compatibility_genes, sex_determination,
+# mutation_rate, selectivity).  Anagenesis is measured as cosine drift of a
+# species' living phenotype centroid away from its frozen type, so it captures
+# a lineage transforming over time even while it remains interfertile
+# (the compatibility subset — and thus reproductive isolation — need not move).
+PHENOTYPE_TRAITS: tuple[str, ...] = (
+    "fecundity", "reproduction_time", "weeks_to_sexual_viability",
+    "parental_investment", "aggression", "migration_likelihood", "territorial",
+    "social_tendency", "pack_hunting", "scavenging_tendency", "nocturnal_tendency",
+    "risk_tolerance", "size", "strength", "speed", "camouflage", "metabolism",
+    "foraging_ability", "water_efficiency", "max_lifespan", "disease_resistance",
+    "immune_response", "stress_tolerance", "heat_tolerance", "cold_tolerance",
+    "drought_tolerance", "hibernation_tendency", "intelligence", "adaptability",
+    "communication", "reproduction_likelihood", "base_predation_rate",
+)
+
+
+def compute_phenotype_matrix(
+    gene_matrix: np.ndarray,
+    owa_alpha: float = Creature.OWA_ALPHA,
+    trait_gene_indices: Optional[dict] = None,
+    traits: tuple[str, ...] = PHENOTYPE_TRAITS,
+) -> np.ndarray:
+    """
+    Vectorized OWA phenotype values for a batch of genomes.
+
+    Returns the RAW sigmoid value in [0, 1] for each trait (not scaled to
+    biological ranges) so that cosine comparisons treat every trait on the same
+    footing rather than letting wide-range traits like max_lifespan dominate.
+
+    Parameters
+    ----------
+    gene_matrix : (N, GENE_DIMS) float array
+    owa_alpha   : OWA decay rate (defaults to Creature.OWA_ALPHA)
+    trait_gene_indices : trait→loci map (defaults to DEFAULT_TRAIT_GENE_INDICES)
+    traits      : ordered trait names to include (defaults to PHENOTYPE_TRAITS)
+
+    Returns (N, len(traits)) float64 array of raw [0, 1] values.
+    """
+    if trait_gene_indices is None:
+        trait_gene_indices = DEFAULT_TRAIT_GENE_INDICES
+    gene_matrix = np.asarray(gene_matrix, dtype=np.float64)
+    n = gene_matrix.shape[0]
+    out = np.empty((n, len(traits)), dtype=np.float64)
+    for j, trait in enumerate(traits):
+        idx = trait_gene_indices[trait]
+        k = len(idx)
+        vals = gene_matrix[:, idx]                       # (N, k)
+        sorted_vals = np.sort(vals, axis=1)[:, ::-1]     # descending per row
+        i_arr = np.arange(k, dtype=np.float64)
+        weights = owa_alpha * (1.0 - owa_alpha) ** i_arr
+        weights /= weights.sum()
+        raw = sorted_vals @ weights                      # (N,)
+        out[:, j] = 1.0 / (1.0 + np.exp(-raw))
+    return out
+
+
+def compute_phenotype(genes: np.ndarray, owa_alpha: float = Creature.OWA_ALPHA) -> np.ndarray:
+    """Phenotype vector (raw [0,1] per PHENOTYPE_TRAITS) for a single genome."""
+    return compute_phenotype_matrix(genes[np.newaxis, :], owa_alpha=owa_alpha)[0]

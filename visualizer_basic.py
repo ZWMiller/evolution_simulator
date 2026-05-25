@@ -83,6 +83,7 @@ def load_run(log_dir: Path) -> dict:
                 "week": week_n,
                 "new_species": ev["new_species"],
                 "parent_species": ev["parent_species"],
+                "event_type": ev.get("event_type", "cladogenesis"),
             })
 
         for hab_id in habitat_ids:
@@ -158,15 +159,20 @@ def load_run(log_dir: Path) -> dict:
 def _speciation_shapes(events: list[dict], y0: float = 0, y1: float = 1, yref: str = "paper"):
     shapes, annotations = [], []
     for ev in events:
+        # Anagenesis (in-place transformation) is drawn amber to distinguish it
+        # from cladogenesis (a split), which stays neutral grey.
+        is_ana = ev.get("event_type") == "anagenesis"
+        line_color = "rgba(232,162,61,0.55)" if is_ana else "rgba(150,150,150,0.4)"
+        text_color = "rgba(232,162,61,0.8)" if is_ana else "rgba(120,120,120,0.7)"
         shapes.append(dict(
             type="line", x0=ev["week"], x1=ev["week"],
             y0=y0, y1=y1, yref=yref,
-            line=dict(color="rgba(150,150,150,0.4)", width=1, dash="dot"),
+            line=dict(color=line_color, width=1, dash="dot"),
         ))
         annotations.append(dict(
             x=ev["week"], y=y1, yref=yref, xanchor="left",
             text=ev["new_species"], showarrow=False,
-            font=dict(size=8, color="rgba(120,120,120,0.7)"),
+            font=dict(size=8, color=text_color),
             textangle=-60,
         ))
     return shapes, annotations

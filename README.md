@@ -18,6 +18,7 @@ A genetic evolution simulation engine written in Python. Creatures carry 500-dim
 vectors encoding dozens of polygenic traits. They inhabit typed biomes, compete for resources,
 reproduce sexually with Mendelian inheritance, migrate across connected regions, and diverge
 into distinct species — all driven by the geometry of their genes against their environment.
+The simulation advances in **weeks**.
 
 ---
 
@@ -27,14 +28,14 @@ into distinct species — all driven by the geometry of their genes against thei
 # Install dependencies
 poetry install
 
-# Run with the bundled default config (365 days, 4 habitats)
+# Run with the bundled default config
 python runner.py
 
 # Use a custom config
 python runner.py path/to/my_config.toml
 
-# Override number of days
-python runner.py --days 500
+# Override the number of weeks
+python runner.py --weeks 5000
 ```
 
 Logs are written to `simulation_logs/YYYY-MM-DD_HH-MM-SS/` and are ignored by git.
@@ -61,7 +62,7 @@ The highest-valued locus receives weight α ≈ 0.6, the next α(1−α) ≈ 0.2
 A beneficial mutation that pushes a locus to the top of the ranking gains immediate
 phenotypic weight rather than being diluted 1/N by a plain mean — making individual
 mutations visible to selection. `OWA_ALPHA` is a class attribute that species subclasses
-can override to tune how strongly the dominant locus controls expression.
+can override.
 
 Many loci contribute to multiple traits (**pleiotropy**), creating correlated selection pressure.
 
@@ -71,32 +72,55 @@ is applied per-locus at that parent's heritable `mutation_rate` — so mutation 
 ### Resource Discovery
 
 Food and water are found via **dot-product geometry**. Each habitat and each creature has a
-vector in the same 500-dimensional space. The daily probability of finding a resource is:
+vector in the same 500-dimensional space. The weekly probability of finding a resource is:
 
 ```
 P(resource) = (cos θ + 1) / 2   where θ = angle between creature genes and habitat vector
 ```
 
-A creature **aligned** with the habitat finds resources with P=1 — it is perfectly adapted.
-A creature **orthogonal** to it has P=0.5 — a random chance, the baseline for unadapted creatures.
-A creature **anti-aligned** finds nothing — P=0, actively maladapted.
+Aligned with the habitat → P=1 (perfectly adapted); orthogonal → P=0.5 (baseline); anti-aligned
+→ P=0 (maladapted). This drives local adaptation without any explicit fitness function.
 
-This drives local adaptation: creatures whose genes align with the habitat vector out-compete
-newcomers, and populations that migrate face immediate resource pressure until they adapt.
+### Mortality
 
-### Species Detection
+Beyond starvation, dehydration, and old age, each creature faces **density-dependent predation**
+each week: `base_predation_rate` (an intrinsic, heritable vulnerability) plus a crowding term
+`PREDATION_ALPHA · N / POPULATION_SUPPORT`. `base_predation_rate` shares loci with `fecundity`,
+encoding an r/K trade-off (high-fecundity genotypes are also more conspicuous).
 
-A `SpeciesRegistry` tracks all species by their progenitor gene vector. When a creature is
-born, its full 500-dim genome is compared against **every registered progenitor** via vectorized
-cosine similarity. It is assigned to the closest existing species if the score exceeds the
-threshold (default 0.75). If no species is close enough, a speciation event is declared.
+### Speciation
 
-Checking all progenitors prevents two failure modes:
+This is the heart of the engine, and it is built on one principle: **a species boundary means
+reproductive isolation**, measured on the *same* 245-locus `compatibility_genes` subset that
+gates mating. Each species keeps **two references**:
 
-- **Drift-back**: a lineage diverges then converges toward an ancestral genetic region — it is
-  re-absorbed rather than logged as a new species.
-- **Convergent evolution**: two independent lineages evolving toward the same genetic region are
-  recognized as the same species, not declared new ones.
+- a frozen full-genome **type** (anchors the name and the anagenesis axis), and
+- a **living compatibility centroid**, refreshed every `respeciate_every` weeks from current
+  members — so a whole population drifting together never speciates (the reference moves with it).
+
+Three mechanisms run on top of this:
+
+1. **Membership (C2).** A newborn joins the nearest living species whose centroid is within
+   `compatibility_threshold` (compat-subset cosine); otherwise it enters a two-stage **candidate**
+   that is promoted to a confirmed species only once it has `min_species_population` members and
+   has persisted `min_species_weeks` weeks.
+
+2. **Cladogenesis (splits).** Periodically, each species' members are clustered in compatibility
+   space (spherical k-means, K = 1..`split_max_k`); the largest K whose sub-clusters are mutually
+   below `split_isolation_threshold` (the mating floor) wins. The sub-cluster nearest the frozen
+   type keeps the name; the others split off. This catches divergence a single centroid would mask
+   — e.g. one species adapting separately in two disconnected habitats, whose shared centroid sits
+   at their midpoint and hides the split until they are nearly anti-aligned.
+
+3. **Anagenesis (transformation).** A lineage can stay one interbreeding population yet drift far
+   from its ancestral *form* over time (think dogs from wolves). When a species' living **phenotype**
+   centroid drifts below `anagenesis_threshold` (centred cosine) from its frozen type and *persists*
+   for `anagenesis_weeks`, a descendant species is minted and living members are re-sorted to
+   whichever (ancestor vs descendant) they now resemble. Dead ancestors keep their labels — the log
+   is the fossil record.
+
+Every speciation event carries an `event_type` of `"cladogenesis"` or `"anagenesis"`, which the
+visualizers render distinctly in the phylogeny.
 
 ---
 
@@ -107,124 +131,78 @@ Checking all progenitors prevents two failure modes:
 | Attribute | Description |
 |---|---|
 | `genes` | `np.ndarray (500,)` — full gene vector |
-| `sex` | `"male"` or `"female"` — determined at birth from genes |
-| `species` | Species name — inherited from parents, updated by `SpeciesRegistry` |
-| `age` | Days lived |
-| `energy` | `[0, 1]` — set daily by `Habitat` based on food discovery |
-| `hydration` | `[0, 1]` — set daily by `Habitat` based on water discovery |
-| `is_alive` | `False` after starvation, dehydration, or old age |
-| `parents` | Direct parents (empty list for founding individuals) |
+| `sex` | `"male"`/`"female"` — `genes[sex_locus] >= 0 → female` |
+| `species` | Inherited from the first parent; set by `SpeciesRegistry` |
+| `age` | Weeks lived |
+| `energy` / `hydration` | `[0, 1]` — set each week by `Habitat` |
+| `is_alive` / `cause_of_death` | starvation, dehydration, old_age, or predation |
 
-Key methods:
+Key methods: `is_compatible(other)` (sex/viability/pregnancy + compat-subset cosine vs
+`COMPATIBILITY_FLOOR + 0.15·selectivity`), `reproduce(other)` (fertility check, Poisson litter,
+per-locus Mendelian inheritance + mutation), `simulate_week()`. Module helpers `compute_phenotype`
+/ `compute_phenotype_matrix` produce the raw `PHENOTYPE_TRAITS` vector used by the anagenesis axis.
 
-- `is_compatible(other)` → `(bool, float, str)` — checks sex, viability, pregnancy status, and
-  cosine similarity of the 245-locus compatibility gene subset against the threshold.
-- `reproduce(other)` → `list[Creature]` — runs a fertility check, creates a litter of
-  `max(1, Poisson(fecundity))` offspring via Mendelian draws with per-locus mutation, stores
-  them in `female._pending_offspring` until gestation completes.
-- `simulate_day()` → `dict` — checks starvation/dehydration, increments age, advances
-  pregnancy, returns a log with `cause_of_death`.
-
-**Genetic traits** (each determined by multiple distributed gene loci):
+**Selected traits** (each polygenic; values are the scaled property ranges):
 
 | Trait | Range | Effect |
 |---|---|---|
-| `size` | [0, 1] | Influences aggression and resource needs |
-| `strength` | [0, 1] | Competition / combat ability |
-| `speed` | [0, 1] | Foraging effectiveness |
-| `aggression` | [0, 1] | Intraspecific conflict intensity |
-| `metabolism` | [0, 1] | Scales daily energy cost when food is absent |
-| `water_efficiency` | [0, 1] | Scales daily hydration cost when water is absent |
-| `fecundity` | [0, 1] | Poisson mean for litter size |
-| `reproduction_likelihood` | [0, 1] | Bernoulli probability fertilization succeeds |
-| `reproduction_time` | 10–500 days | Gestation / incubation period |
-| `days_to_sexual_viability` | 30–1000 days | Age before reproduction is possible |
-| `max_lifespan` | 100–5000 days | Maximum age before death |
-| `migration_likelihood` | [0, 1] | Multiplied by `DAILY_MIGRATION_BASE` (0.01) |
-| `intelligence` | [0, 1] | General fitness modifier |
-| `immune_strength` | [0, 1] | Disease and stress resistance |
-| `camouflage` | [0, 1] | Predation avoidance |
+| `fecundity` | 1–8 | Poisson mean for litter size |
+| `reproduction_time` | 1–20 wk | Gestation period |
+| `weeks_to_sexual_viability` | 4–50 wk | Age before reproduction |
+| `max_lifespan` | 40–400 wk | Maximum age |
+| `metabolism` | 0.5–2.0 | Scales weekly energy cost when food is missed |
+| `water_efficiency` | [0, 1] | Reduces hydration cost when water is missed |
+| `migration_likelihood` | [0, 1] | × `WEEKLY_MIGRATION_BASE` (0.01) |
+| `base_predation_rate` | 0–0.005 | Intrinsic weekly predation vulnerability |
 | `selectivity` | [0, 1] | Raises mate-compatibility threshold above the floor |
-| `mutation_rate` | [0, 1] | Per-locus mutation probability (heritable and evolvable) |
-| `sex_determination` | — | `sigmoid ≥ 0.5` → female |
-| `compatibility_genes` | 245 loci | Used for cosine-similarity mating and species checks |
+| `mutation_rate` | 0.001–0.05 | Per-locus mutation probability (heritable) |
+| `compatibility_genes` | 245 loci | Cosine basis for mating **and** speciation |
 
----
+Plus the physical / physiological / behavioural / cognitive traits (`size`, `strength`, `speed`,
+tolerances, `intelligence`, etc.) that make up the 32-trait `PHENOTYPE_TRAITS` vector.
 
 ### `Habitat` — `evolution_simulator/habitat.py`
 
-A geographic region with a 500-dim environment vector. Each simulated day:
-
-1. Computes food and water likelihoods for all creatures via vectorized `(cos θ + 1) / 2`.
-2. Updates energy and hydration; marks starvation / dehydration deaths.
-3. Advances each creature's day (aging, pregnancy timer).
-4. Collects litters from females that reached term.
-5. Removes the dead.
-6. Migrates willing creatures to passable neighbours.
-7. Pairs viable males and females for mating (1:1 random shuffle).
-8. Adds newborns and assigns species via the registry.
-9. Attempts spontaneous route isolation.
-
-`simulate_day()` returns a dict with `births`, `deaths`, `mating_events`, `migrations`, and
-`isolations`. Migration events are returned rather than applied immediately so that the runner
-can process all habitats before moving any creature, preventing double-simulation on the same day.
-
----
+A region with a 500-dim environment vector. `simulate_week()` runs, in order: batch food/water
+likelihoods → energy/hydration update and starvation/dehydration/old-age deaths → aging &
+pregnancy → litter collection → density-dependent predation → remove dead → collect migrations
+→ pair males/females for mating → add newborns (assign species) → spontaneous route isolation.
+Migrations are **returned, not applied**, so `SimulationRunner` can process all habitats before
+moving any creature (no double-simulation). `compute_stats()` reports per-species trait means and
+adaptation (`mean_food_prob` / `mean_water_prob`).
 
 ### Habitat Types — `evolution_simulator/habitats/types.py`
 
-Each type has a **fixed characteristic center vector** (computed once at class definition from
-`TYPE_SEED` via `__init_subclass__`) plus Gaussian per-instance noise. Resource constants are
-tuned to create distinct selection pressures.
-
-| Type | Food↑ | Food↓ | Water↑ | Water↓ | Migration | Notes |
-|---|---|---|---|---|---|---|
-| `Desert` | 0.25 | 0.20 | 0.30 | **0.35** | 1× | Punishes low water efficiency |
-| `Forest` | 0.30 | 0.15 | 0.30 | 0.20 | 1× | Balanced baseline |
-| `Rainforest` | **0.40** | 0.15 | **0.45** | 0.20 | 1× | Abundant; high competition |
-| `Plains` | 0.30 | 0.15 | 0.30 | 0.20 | **1.5×** | Easy dispersal |
-| `Tundra` | 0.20 | 0.20 | 0.25 | 0.20 | 1× | Sparse food; cold cost |
-| `Ocean` | 0.35 | 0.15 | 0.50 | **0.00** | **2×** | No dehydration; fast dispersal |
-| `CoralReef` | **0.45** | 0.15 | 0.50 | **0.00** | 1× | Highest productivity |
-| `Wetlands` | 0.30 | 0.15 | **0.45** | **0.00** | 1× | Water everywhere |
-| `Alpine` | 0.18 | **0.25** | 0.30 | 0.20 | **0.5×** | Scarce food; terrain limits movement |
-| `Volcanic` | 0.22 | **0.25** | 0.20 | **0.30** | **0.5×** | Extreme mortality pressure |
-| `Cave` | **0.15** | 0.15 | 0.30 | 0.20 | **0.3×** | Scarce everything |
-| `Arctic` | **0.15** | **0.25** | 0.35 | 0.20 | 1× | Extreme cold |
-| `River` | 0.30 | 0.15 | **0.45** | **0.00** | **1.5×** | Current-aided movement |
-| `Savanna` | 0.28 | 0.15 | 0.30 | **0.25** | **1.2×** | Seasonal water stress |
-
-Food↑/↓ = energy gain/cost per missed day. Water↑/↓ = hydration gain/cost per missed day.
-Migration = multiple of the default 1% daily base rate.
-
----
+14 typed biomes, each with a fixed characteristic centre vector (seeded once via
+`__init_subclass__`) plus Gaussian per-instance noise, and resource constants tuned for distinct
+selection pressures: `Desert`, `Forest`, `Rainforest`, `Plains`, `Tundra`, `Ocean`, `CoralReef`,
+`Wetlands`, `Alpine`, `Volcanic`, `Cave`, `Arctic`, `River`, `Savanna`. See `types.py` for the
+per-type gain/cost/migration/predation constants.
 
 ### `SpeciesRegistry` — `evolution_simulator/species.py`
 
 ```python
 from evolution_simulator.species import SpeciesRegistry
 
-registry = SpeciesRegistry(species_threshold=0.75)
+registry = SpeciesRegistry(compatibility_threshold=0.65)
+name = registry.register_founding_species(founder.genes)   # founder.species = name
 
-# Register a founding individual
-name = registry.register_founding_species(founder.genes)
-founder.species = name
-
-# Assign species at birth (called automatically by SimulationRunner)
+# Per birth (called automatically by SimulationRunner):
 registry.assign_species(newborn)
 
-# Inspect
-registry.species_count                         # int
-registry.all_species                           # list[str]
-registry.speciation_events                     # list[dict]
-registry.similarity_to_all_progenitors(c)      # dict[str, float]
+# Each step, after migrations (SimulationRunner does this on the respeciate_every cadence):
+registry.detect_subcluster_splits(all_alive, week)   # cladogenesis (run before refresh)
+registry.refresh_centroids(all_alive)                # move living centroids
+registry.detect_anagenesis(all_alive, week)          # in-place transformation
+registry.promote_candidates(all_alive, week)         # two-stage gate
+
+registry.speciation_events    # list[dict], each with "event_type"
+registry.all_species          # list[str]   (incl. extinct)
+registry.living_species_count # species with living members
 ```
 
 Species names are drawn from an adjective + noun vocabulary in
 `evolution_simulator/config/species_names.toml` (100 × 100 = 10,000 combinations).
-The file is user-editable; each list must be non-empty with unique strings.
-
----
 
 ### `SimulationRunner` — `evolution_simulator/simulation.py`
 
@@ -233,122 +211,83 @@ from pathlib import Path
 from evolution_simulator.simulation import SimulationRunner
 
 runner = SimulationRunner(Path("my_config.toml"))
-log_dir = runner.setup()   # builds habitats, seeds population, writes metadata.json
-runner.run()               # simulates all days, writes per-day JSON + summary.json
+runner.setup()             # build habitats, seed population, write metadata.json
+runner.run()               # simulate all weeks, write per-week JSON + summary.json
+# or: for _ in range(100): runner.step()
 ```
 
-Step manually for custom control:
-```python
-runner.setup()
-for _ in range(100):
-    day_log = runner.step()   # full event dict for the day
-```
-
-**Population seeding**: each habitat gets `initial_species_per_habitat` distinct founding
-genomes. `creatures_per_species` individuals are placed near each genome (within
-`initial_genome_noise`), split 50/50 male/female. Founding creatures start at
-`age = days_to_sexual_viability + 1` so mating begins immediately. Both parameters
-can be overridden per habitat in the config, so different habitats can start with
-different populations.
-
-**Early termination**: `run()` halts before the configured number of days if the global
-population reaches zero. `summary.json` records `"extinct": true` in that case.
+Founders start at `age = weeks_to_sexual_viability + 1` so mating begins on week 1. `run()` halts
+early on global extinction (`summary.json` records `"extinct": true`). Two independent cadences
+control output volume: `stats_every` (per-species/habitat statistics) and `events_every`
+(individual births/deaths/matings/migrations/speciations).
 
 ---
 
 ## Configuration
 
-Copy `evolution_simulator/config/simulation.toml` and edit as needed:
+Copy `evolution_simulator/config/simulation.toml` and edit:
 
 ```toml
 [simulation]
-days                        = 365
-seed                        = 42        # remove for a random seed each run
+weeks                       = 5000
+seed                        = 42        # remove for a random seed
 output_dir                  = "simulation_logs"
-initial_species_per_habitat = 3         # distinct founding genomes per habitat
-creatures_per_species       = 10        # creatures per founding genome (50/50 sex split)
-initial_genome_noise        = 0.05      # gene noise around founding genome (keep ≤ 0.1)
-isolation_probability       = 0.001     # per-link per-day route severance probability
+initial_species_per_habitat = 3
+creatures_per_species       = 10        # 50/50 sex split
+initial_genome_noise        = 0.05
+founding_habitat_bias       = 0.0       # 0 = random genome, 1 = aligned to habitat
+isolation_probability       = 0.001     # per-link weekly route severance
+stats_every                 = 10        # weeks between statistics snapshots
+events_every                = 0         # 0 = no per-event logging
+respeciate_every            = 10        # weeks between living-centroid refresh + detectors
 
 [species]
-threshold = 0.75                        # cosine similarity floor for same-species membership
+compatibility_threshold   = 0.65        # compat-subset cosine vs living centroid (≈ below 0.70 mating floor)
+min_species_population     = 10         # candidate members required to promote
+min_species_weeks          = 60         # weeks a candidate must persist (~2 generations)
+split_max_k                = 5          # max sub-clusters considered per species
+split_isolation_threshold  = 0.70       # sub-clusters below this are different species (= mating floor)
+anagenesis_threshold       = 0.93       # centred phenotype cosine drift that counts as transformation
+anagenesis_weeks           = 60         # weeks that drift must persist before naming
 
 [habitats]
-connections = [
-    ["desert_1", "plains_1"],
-    ["plains_1", "forest_1"],
-]
+connections = [["desert_1", "plains_1"], ["plains_1", "forest_1"]]
 
 [[habitats.instances]]
 id   = "desert_1"
-type = "Desert"           # any type from the table above
-seed = 1                  # controls per-instance variation around the type center
-name = "Northern Desert"  # optional human-readable label
-
-[[habitats.instances]]
-id   = "plains_1"
-type = "Plains"
-seed = 2
-# initial_species_per_habitat = 1   # per-habitat overrides
-# creatures_per_species = 50        # → 25 female + 25 male, one founding genome
+type = "Desert"
+seed = 1
+name = "Northern Desert"
+# initial_species_per_habitat / creatures_per_species can be overridden per habitat
 ```
 
-**Single-species isolation experiment**: set `initial_species_per_habitat = 1` and a large
-`creatures_per_species` on a habitat with no connections to watch divergence from a single
-ancestor. The simulation halts automatically if the population collapses to zero.
+**On timescales:** a generation is roughly `weeks_to_sexual_viability` (~25–35 weeks), so the
+generation-scaled gates above make speciation rare and mostly legible in long runs (thousands of
+weeks). Smoke-test for correctness; observe emergence over long runs. Ready-made long configs live
+in `configs/`.
 
 ---
 
 ## Simulation Logs
 
 ```
-simulation_logs/
-└── 2024-01-15_14-30-00/
-    ├── config.toml         ← exact copy of the config used
-    ├── metadata.json       ← habitat topology, parameters, seed
-    ├── day_00001.json
-    ├── day_00002.json
-    ├── ...
-    └── summary.json        ← final state, speciation history, extinction flag
+simulation_logs/2024-01-15_14-30-00/
+├── config.toml         ← exact copy of the config used
+├── metadata.json       ← habitat topology, parameters, seed, speciation knobs
+├── week_00001.json     ← written when stats_every OR events_every is due
+├── ...
+└── summary.json        ← final state, all_speciation_events (with event_type), extinction flag
 ```
 
-Each `day_NNNNN.json` captures every event for replay in a visualizer:
+Speciation events (per-week when logged, and complete in `summary.json`) look like:
 
 ```jsonc
-{
-  "day": 42,
-  "global_population": 247,
-  "global_species_count": 5,
-  "global_species_distribution": { "blazing nomad": 80, "vivid surger": 167 },
-  "speciation_events": [{ "new_species": "...", "parent_species": "...", "creature_id": "..." }],
-  "migrations": [{ "creature_id": "...", "species": "...", "from_habitat": "...", "to_habitat": "..." }],
-  "habitats": {
-    "desert_1": {
-      "habitat_type": "Desert",
-      "population": 62,
-      "species_distribution": { "blazing nomad": 62 },
-      "births": [{ "creature_id": "...", "species": "...", "sex": "female", "parents": ["...", "..."] }],
-      "deaths": [{ "creature_id": "...", "cause": "starvation", "age": 183 }],
-      "mating_events": [
-        {
-          "male_id": "...", "female_id": "...",
-          "compatibility_score": 0.9731,
-          "compatible": true, "fertilized": true,
-          "litter_size": 2, "offspring_ids": ["...", "..."]
-        },
-        {
-          "male_id": "...", "female_id": "...",
-          "compatibility_score": 0.7812,
-          "compatible": false, "fertilized": false,
-          "reason": "incompatible_genes"
-        }
-      ],
-      "migrations_out": [{ "creature_id": "...", "species": "...", "to_habitat": "plains_1" }],
-      "isolations": []
-    }
-  }
-}
+{ "new_species": "...", "parent_species": "...", "creature_id": "...",
+  "week": 1240, "event_type": "cladogenesis" }   // or "anagenesis"
 ```
+
+Visualize a run with `python visualizer_basic.py` (static charts) or `python visualizer_advanced.py`
+(interactive Dash app with a phylogeny that distinguishes cladogenesis from anagenesis).
 
 ---
 
@@ -356,22 +295,20 @@ Each `day_NNNNN.json` captures every event for replay in a visualizer:
 
 ```
 evolution_simulator/
-├── runner.py                          ← stand-alone entry point
+├── runner.py                     ← stand-alone entry point
+├── visualizer_basic.py           ← static plotly charts
+├── visualizer_advanced.py        ← interactive Dash app
+├── visualizer/                   ← data loading, figures, panels for the advanced UI
+├── experiments/                  ← recorded calibration experiments (e.g. drift_trajectory.py)
+├── configs/                      ← ready-made long-run configs
 ├── evolution_simulator/
-│   ├── creature.py                    ← Creature class, gene/trait system, reproduction
-│   ├── habitat.py                     ← Habitat base class, resource geometry, migration
-│   ├── habitats/
-│   │   ├── __init__.py
-│   │   └── types.py                   ← 14 typed biome subclasses + HABITAT_TYPE_REGISTRY
-│   ├── species.py                     ← SpeciesRegistry, speciation detection
-│   ├── simulation.py                  ← SimulationRunner, JSON logging
-│   └── config/
-│       ├── simulation.toml            ← default simulation config (copy and edit)
-│       └── species_names.toml         ← adjective/noun vocabulary for species names
-└── tests/
-    ├── test_creature.py
-    ├── test_habitat.py
-    └── test_species.py
+│   ├── creature.py               ← gene/trait system, phenotype, reproduction
+│   ├── habitat.py                ← resource geometry, predation, migration, stats
+│   ├── habitats/types.py         ← 14 typed biomes + HABITAT_TYPE_REGISTRY
+│   ├── species.py                ← SpeciesRegistry: C2 + cladogenesis + anagenesis
+│   ├── simulation.py             ← SimulationRunner, JSON logging
+│   └── config/                   ← simulation.toml, species_names.toml
+└── tests/                        ← test_creature.py, test_habitat.py, test_species.py, ...
 ```
 
 ## Tests
@@ -380,6 +317,7 @@ evolution_simulator/
 poetry run pytest
 ```
 
-185 tests covering creature genetics, trait computation, Mendelian reproduction, habitat
-resource geometry, neighbour management, species assignment, drift-back protection, and
-convergent evolution detection.
+240 tests covering gene/trait computation, Mendelian reproduction, resource geometry, predation,
+migration, and the full speciation stack: compatibility-centroid membership, living-centroid drift
+handling, spherical-k-means sub-cluster splits, and phenotype-drift anagenesis with its persistence
+gate.

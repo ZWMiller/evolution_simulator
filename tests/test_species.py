@@ -1,6 +1,13 @@
 import numpy as np
 import pytest
-from evolution_simulator.creature import Creature, DEFAULT_TRAIT_GENE_INDICES, GENE_DIMS
+from evolution_simulator.creature import (
+    Creature,
+    DEFAULT_TRAIT_GENE_INDICES,
+    GENE_DIMS,
+    PHENOTYPE_TRAITS,
+    compute_phenotype,
+    compute_phenotype_matrix,
+)
 from evolution_simulator.species import SpeciesRegistry, ADJECTIVES, NOUNS
 
 
@@ -702,3 +709,242 @@ class TestRepr:
     def test_repr_contains_event_count(self, registry_with_founder):
         reg, _, _ = registry_with_founder
         assert "0 speciation events" in repr(reg)
+
+
+# ---------------------------------------------------------------------------
+# Phenotype computation (anagenesis axis)
+# ---------------------------------------------------------------------------
+
+class TestPhenotype:
+    def test_matches_per_creature_owa(self):
+        rng = np.random.default_rng(0)
+        genes = rng.standard_normal(GENE_DIMS)
+        ph = compute_phenotype(genes)
+        c = Creature(genes=genes.copy())
+        for j, t in enumerate(PHENOTYPE_TRAITS):
+            assert abs(ph[j] - c._compute_trait(t)) < 1e-9
+
+    def test_matrix_matches_single(self):
+        rng = np.random.default_rng(1)
+        M = rng.standard_normal((4, GENE_DIMS))
+        mat = compute_phenotype_matrix(M)
+        for i in range(4):
+            np.testing.assert_allclose(mat[i], compute_phenotype(M[i]), rtol=1e-9)
+
+    def test_excludes_genetic_machinery_traits(self):
+        for t in ("compatibility_genes", "sex_determination", "mutation_rate", "selectivity"):
+            assert t not in PHENOTYPE_TRAITS
+
+
+# ---------------------------------------------------------------------------
+# Spherical k-means + K-selection
+# ---------------------------------------------------------------------------
+
+class TestClustering:
+    def test_two_isolated_blobs_select_k2(self):
+        reg = SpeciesRegistry()
+        rng = np.random.default_rng(2)
+        a = rng.standard_normal(245)
+        b = rng.standard_normal(245)
+        A = a + 0.01 * rng.standard_normal((6, 245))
+        B = b + 0.01 * rng.standard_normal((6, 245))
+        X = reg._unit_rows(np.vstack([A, B]))
+        labels, centroids = reg._select_clusters(X, seed=0)
+        assert centroids.shape[0] == 2
+        assert len(set(labels[:6].tolist())) == 1
+        assert len(set(labels[6:].tolist())) == 1
+        assert labels[0] != labels[6]
+
+    def test_single_blob_stays_k1(self):
+        reg = SpeciesRegistry()
+        rng = np.random.default_rng(3)
+        a = rng.standard_normal(245)
+        X = reg._unit_rows(a + 0.01 * rng.standard_normal((10, 245)))
+        _, centroids = reg._select_clusters(X, seed=0)
+        assert centroids.shape[0] == 1
+
+
+# ---------------------------------------------------------------------------
+# Sub-cluster split detector (cladogenesis)
+# ---------------------------------------------------------------------------
+
+class TestSubclusterSplit:
+    def _two_clusters(self, reg, base, founder, n_near=5, n_far=5):
+        near = [
+            make_creature(near_genes(base, 0.001, seed=i), parent_species=founder)
+            for i in range(n_near)
+        ]
+        far_base = with_new_compat(base, seed=777)
+        far = [
+            make_creature(near_genes(far_base, 0.001, seed=100 + i), parent_species=founder)
+            for i in range(n_far)
+        ]
+        return near, far
+
+    def test_split_seeds_candidate_for_diverged_cluster(self):
+        rng = np.random.default_rng(5)
+        reg = SpeciesRegistry()
+        base = rng.standard_normal(GENE_DIMS)
+        founder = reg.register_founding_species(base, name="Root")
+        near, far = self._two_clusters(reg, base, founder)
+
+        reg.detect_subcluster_splits(near + far, current_week=10)
+
+        assert len(reg._candidates) == 1
+        cand = next(iter(reg._candidates.values()))
+        # The cluster nearest the type keeps the name; the far cluster splits off.
+        assert cand["members"] <= {c.creature_id for c in far}
+        assert cand["parent_species"] == founder
+
+    def test_split_promotes_and_relabels_via_existing_gate(self):
+        rng = np.random.default_rng(6)
+        reg = SpeciesRegistry()
+        base = rng.standard_normal(GENE_DIMS)
+        founder = reg.register_founding_species(base, name="Root")
+        near, far = self._two_clusters(reg, base, founder)
+        allc = near + far
+
+        reg.detect_subcluster_splits(allc, current_week=0)
+        reg.promote_candidates(allc, current_week=10)  # age >= min_species_weeks
+
+        assert reg.species_count == 2
+        ev = reg.speciation_events[-1]
+        assert ev["event_type"] == "cladogenesis"
+        assert all(c.species != founder for c in far)
+        assert all(c.species == founder for c in near)
+
+    def test_coherent_species_not_split(self):
+        rng = np.random.default_rng(7)
+        reg = SpeciesRegistry()
+        base = rng.standard_normal(GENE_DIMS)
+        founder = reg.register_founding_species(base, name="Root")
+        members = [
+            make_creature(near_genes(base, 0.01, seed=i), parent_species=founder)
+            for i in range(10)
+        ]
+        reg.detect_subcluster_splits(members, current_week=10)
+        assert len(reg._candidates) == 0
+
+
+# ---------------------------------------------------------------------------
+# Anagenesis detector (in-place transformation)
+# ---------------------------------------------------------------------------
+
+class TestAnagenesis:
+    def test_phenotype_drift_mints_descendant_and_respeciates(self):
+        rng = np.random.default_rng(8)
+        reg = SpeciesRegistry()
+        g0 = rng.standard_normal(GENE_DIMS)
+        founder = reg.register_founding_species(g0, name="Ancestor")
+
+        delta = rng.standard_normal(GENE_DIMS)  # whole-lineage directional shift
+        members = [
+            make_creature(g0 + delta + 0.001 * rng.standard_normal(GENE_DIMS),
+                          parent_species=founder)
+            for _ in range(6)
+        ]
+        type_ph = compute_phenotype(g0)
+        centroid = compute_phenotype_matrix(np.stack([m.genes for m in members])).mean(axis=0)
+        # Detector centres phenotype on 0.5 before the cosine; mirror that here.
+        actual = _cos(centroid - 0.5, type_ph - 0.5)
+        # Set the bar just above the observed drift so the trigger is deterministic.
+        reg.anagenesis_threshold = actual + 0.005
+        reg.anagenesis_weeks = 0  # no persistence wait for this single-call test
+
+        events = reg.detect_anagenesis(members, current_week=20)
+
+        assert len(events) == 1
+        assert events[0]["event_type"] == "anagenesis"
+        assert reg.species_count == 2
+        # The whole lineage moved → all members carry the descendant name.
+        assert all(m.species == events[0]["new_species"] for m in members)
+
+    def test_no_drift_no_event(self):
+        rng = np.random.default_rng(9)
+        reg = SpeciesRegistry()
+        g0 = rng.standard_normal(GENE_DIMS)
+        founder = reg.register_founding_species(g0, name="Ancestor")
+        members = [
+            make_creature(near_genes(g0, 0.001, seed=i), parent_species=founder)
+            for i in range(6)
+        ]
+        type_ph = compute_phenotype(g0)
+        centroid = compute_phenotype_matrix(np.stack([m.genes for m in members])).mean(axis=0)
+        # below the observed (centred) drift → no trigger
+        reg.anagenesis_threshold = _cos(centroid - 0.5, type_ph - 0.5) - 0.01
+
+        events = reg.detect_anagenesis(members, current_week=20)
+        assert events == []
+        assert reg.species_count == 1
+
+    def test_species_with_active_split_candidate_is_skipped(self):
+        rng = np.random.default_rng(10)
+        reg = SpeciesRegistry()
+        g0 = rng.standard_normal(GENE_DIMS)
+        founder = reg.register_founding_species(g0, name="Ancestor")
+        members = [
+            make_creature(g0 + rng.standard_normal(GENE_DIMS), parent_species=founder)
+            for _ in range(6)
+        ]
+        # Force an active split candidate for the founder.
+        reg._candidates["cand_x"] = {
+            "genes": members[0].genes.copy(),
+            "compat": reg._compat(members[0].genes).copy(),
+            "parent_species": founder,
+            "detected_week": 0,
+            "members": {members[0].creature_id},
+            "first_creature_id": members[0].creature_id,
+            "peak_members": 1,
+        }
+        reg.anagenesis_threshold = 1.0  # would fire if not skipped
+        events = reg.detect_anagenesis(members, current_week=20)
+        assert events == []
+
+    def test_persistence_gate_delays_minting(self):
+        rng = np.random.default_rng(11)
+        reg = SpeciesRegistry()
+        g0 = rng.standard_normal(GENE_DIMS)
+        founder = reg.register_founding_species(g0, name="Ancestor")
+        delta = rng.standard_normal(GENE_DIMS)
+        members = [
+            make_creature(g0 + delta + 0.001 * rng.standard_normal(GENE_DIMS),
+                          parent_species=founder)
+            for _ in range(6)
+        ]
+        type_ph = compute_phenotype(g0)
+        centroid = compute_phenotype_matrix(np.stack([m.genes for m in members])).mean(axis=0)
+        reg.anagenesis_threshold = _cos(centroid - 0.5, type_ph - 0.5) + 0.005
+        reg.anagenesis_weeks = 50
+
+        # First detection starts the persistence clock — no event yet.
+        assert reg.detect_anagenesis(members, current_week=100) == []
+        assert reg.species_count == 1
+        # Still within the window.
+        assert reg.detect_anagenesis(members, current_week=140) == []
+        # Past the window → descendant is minted.
+        events = reg.detect_anagenesis(members, current_week=160)
+        assert len(events) == 1
+        assert events[0]["event_type"] == "anagenesis"
+        assert reg.species_count == 2
+
+    def test_rebound_resets_persistence_clock(self):
+        rng = np.random.default_rng(12)
+        reg = SpeciesRegistry()
+        g0 = rng.standard_normal(GENE_DIMS)
+        founder = reg.register_founding_species(g0, name="Ancestor")
+        drifted = [
+            make_creature(g0 + rng.standard_normal(GENE_DIMS) + 0.001 * rng.standard_normal(GENE_DIMS),
+                          parent_species=founder)
+            for _ in range(6)
+        ]
+        type_ph = compute_phenotype(g0)
+        cen = compute_phenotype_matrix(np.stack([m.genes for m in drifted])).mean(axis=0)
+        reg.anagenesis_threshold = _cos(cen - 0.5, type_ph - 0.5) + 0.005
+        reg.anagenesis_weeks = 50
+
+        reg.detect_anagenesis(drifted, current_week=100)        # clock starts
+        # A coherent (near-type) population appears → above threshold → clock clears.
+        coherent = [make_creature(near_genes(g0, 0.001, seed=i), parent_species=founder)
+                    for i in range(6)]
+        assert reg.detect_anagenesis(coherent, current_week=120) == []
+        assert "Ancestor" not in reg._anagenesis_pending
