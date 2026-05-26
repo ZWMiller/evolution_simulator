@@ -20,11 +20,19 @@ from evolution_simulator.habitat import Habitat
 # ---------------------------------------------------------------------------
 
 def _make_species_genome(rng, base_seed_genes: np.ndarray) -> np.ndarray:
-    """Return a genome that is compatible with base_seed_genes (same compatibility loci)."""
+    """
+    Return a genome suitable for a founding species in tests.
+
+    Only modifies loci that do NOT overlap with compatibility_genes (ranges
+    80-129, 140-189, 220-269, 285-339, 390-429).  Setting reproduction_likelihood
+    to a high value is deliberately avoided: those loci (80-82, 140-142, 220-222,
+    290-291, 392-393) fall inside compatibility_genes, and setting them identically
+    for two species inflates their cross-species cosine similarity above the mating
+    floor, making genetically distinct species appear compatible with each other.
+    """
     genes = base_seed_genes.copy()
-    genes[DEFAULT_TRAIT_GENE_INDICES["selectivity"]] = -10.0            # low selectivity
-    genes[DEFAULT_TRAIT_GENE_INDICES["reproduction_likelihood"]] = 10.0 # high fertility
-    genes[DEFAULT_TRAIT_GENE_INDICES["fecundity"]] = 5.0                # moderate fecundity
+    # selectivity loci 353-359, 436-439 are outside compatibility_genes — safe to set
+    genes[DEFAULT_TRAIT_GENE_INDICES["selectivity"]] = -10.0  # low selectivity
     return genes
 
 
@@ -285,6 +293,132 @@ class TestSpeciesPriorityStrategy:
         r_sp = hab_sp.simulate_week(mating_strategy="species_priority")
         assert len(r_zip["mating_events"]) > 0
         assert len(r_sp["mating_events"]) > 0
+
+
+# ---------------------------------------------------------------------------
+# Strategy: weighted_matrix
+# ---------------------------------------------------------------------------
+
+class TestWeightedMatrixStrategy:
+    def test_weighted_matrix_produces_mating_events(self):
+        hab, majority, minority = _build_two_species_habitat()
+        result = hab.simulate_week(mating_strategy="weighted_matrix")
+        assert len(result["mating_events"]) > 0
+
+    def test_minority_gets_within_species_pairings(self):
+        """
+        weighted_matrix should pair minority creatures with same-species partners
+        (high-selectivity default genes → high sharpness → picks highest-scoring male).
+        """
+        minority_pair_rates = []
+        for seed in range(30):
+            hab, majority, minority = _build_two_species_habitat(
+                n_majority=40, n_minority=4, rng_seed=seed
+            )
+            result = hab.simulate_week(mating_strategy="weighted_matrix")
+            minority_ids = {c.creature_id for c in minority}
+            within_minority = [
+                ev for ev in result["mating_events"]
+                if ev["male_id"] in minority_ids and ev["female_id"] in minority_ids
+            ]
+            minority_pair_rates.append(len(within_minority))
+
+        mean_pairs = np.mean(minority_pair_rates)
+        assert mean_pairs >= 1.5, (
+            f"Expected minority to mostly pair within-species, got mean {mean_pairs:.2f}"
+        )
+
+    def test_minority_gets_more_matings_than_zip(self):
+        """weighted_matrix should protect the minority at least as well as species_priority."""
+        def count_minority_births(strategy: str, n_trials: int = 50) -> float:
+            total = 0
+            for seed in range(n_trials):
+                hab, majority, minority = _build_two_species_habitat(
+                    n_majority=40, n_minority=4, rng_seed=seed
+                )
+                result = hab.simulate_week(mating_strategy=strategy)
+                minority_ids = {c.creature_id for c in minority}
+                births = sum(
+                    1 for ev in result["mating_events"]
+                    if ev.get("fertilized")
+                    and ev["male_id"] in minority_ids
+                    and ev["female_id"] in minority_ids
+                )
+                total += births
+            return total / n_trials
+
+        zip_mean = count_minority_births("zip")
+        wm_mean = count_minority_births("weighted_matrix")
+        assert wm_mean > zip_mean, (
+            f"weighted_matrix ({wm_mean:.2f}) should protect minority better than zip ({zip_mean:.2f})"
+        )
+
+    def test_low_selectivity_increases_hybridisation(self):
+        """
+        Creatures with low selectivity should hybridise at a higher rate than
+        those with high selectivity under weighted_matrix.
+        """
+        from evolution_simulator.creature import DEFAULT_TRAIT_GENE_INDICES, GENE_DIMS
+
+        def hybrid_rate(selectivity_value: float, n_trials: int = 40) -> float:
+            hybrids = 0
+            total = 0
+            sel_idx = DEFAULT_TRAIT_GENE_INDICES["selectivity"]
+            rl_idx = DEFAULT_TRAIT_GENE_INDICES["reproduction_likelihood"]
+            rng = np.random.default_rng(0)
+
+            for seed in range(n_trials):
+                rng2 = np.random.default_rng(seed + 100)
+                hab = Habitat()
+                # Two species: same population size, equal sex ratio
+                for sp in ("A", "B"):
+                    base = rng2.standard_normal(GENE_DIMS)
+                    base[sel_idx] = selectivity_value
+                    base[rl_idx] = 10.0  # high fertility
+                    for i in range(10):
+                        genes = base + rng2.standard_normal(GENE_DIMS) * 0.05
+                        genes[sel_idx] = selectivity_value
+                        c = _make_creature(genes, "female" if i % 2 == 0 else "male", sp)
+                        hab.add_creature(c)
+
+                result = hab.simulate_week(mating_strategy="weighted_matrix")
+                for ev in result["mating_events"]:
+                    if ev.get("fertilized"):
+                        total += 1
+                        if "hybridization" in ev:
+                            hybrids += 1
+
+            return hybrids / total if total > 0 else 0.0
+
+        low_sel_rate = hybrid_rate(-5.0)   # genes → low selectivity trait value
+        high_sel_rate = hybrid_rate(5.0)   # genes → high selectivity trait value
+        assert low_sel_rate >= high_sel_rate, (
+            f"Low selectivity should hybridise at least as often as high: "
+            f"low={low_sel_rate:.3f}, high={high_sel_rate:.3f}"
+        )
+
+    def test_no_double_mating(self):
+        """Each male should appear in at most one fertilized event."""
+        hab, majority, minority = _build_two_species_habitat(n_majority=20, n_minority=20)
+        result = hab.simulate_week(mating_strategy="weighted_matrix")
+        male_ids_in_events = [ev["male_id"] for ev in result["mating_events"]]
+        assert len(male_ids_in_events) == len(set(male_ids_in_events)), (
+            "A male appeared in more than one mating event (double-mating)"
+        )
+
+    def test_build_compatibility_matrix_shape_and_range(self):
+        """_build_compatibility_matrix returns (M, F) with values in [-1, 1]."""
+        rng = np.random.default_rng(42)
+        males = [_make_creature(rng.standard_normal(500), "male", "s") for _ in range(5)]
+        females = [_make_creature(rng.standard_normal(500), "female", "s") for _ in range(7)]
+        mat = Habitat._build_compatibility_matrix(males, females)
+        assert mat.shape == (5, 7)
+        assert mat.min() >= -1.0 and mat.max() <= 1.0
+
+    def test_empty_pools_return_no_events(self):
+        hab = Habitat()
+        result = hab.simulate_week(mating_strategy="weighted_matrix")
+        assert result["mating_events"] == []
 
 
 # ---------------------------------------------------------------------------

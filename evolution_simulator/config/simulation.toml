@@ -117,12 +117,12 @@ respeciate_every = 10
 #   "zip"              – shuffle all males + females together, zip 1:1 (legacy default;
 #                        penalises minority species with wasted cross-species encounters)
 #   "species_priority" – pair within-species first; surplus individuals go into a shared
-#                        spillover pool for cross-species hybridisation (Strategy A)
+#                        spillover pool for cross-species hybridisation
 #   "weighted_matrix"  – build full M×F compatibility-score matrix; each female samples a
 #                        male weighted by score above threshold, sharpness driven by the
-#                        selectivity trait (Strategy B; O(N²))
+#                        selectivity trait (O(N²))
 #   "stable_matching"  – Gale-Shapley mutual-preference stable matching on the score
-#                        matrix; maximally efficient pairing (Strategy D; O(N²))
+#                        matrix; maximally efficient pairing (O(N²))
 mating_strategy = "zip"
 
 

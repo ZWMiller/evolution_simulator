@@ -229,6 +229,12 @@ class Habitat:
     PREDATION_ALPHA: float = 0.010
     POPULATION_SUPPORT: int = 400
 
+    # Sharpness multiplier for weighted-matrix mating.
+    # Sampling weight = max(0, score - threshold) ^ (1 + MATING_SHARPNESS_K * selectivity)
+    # With K=3: low selectivity → exponent ≈ 1 (nearly uniform above floor),
+    # high selectivity → exponent ≈ 4 (strongly peaked at best available mate).
+    MATING_SHARPNESS_K: float = 3.0
+
     def __init__(
         self,
         vector: Optional[np.ndarray] = None,
@@ -480,7 +486,7 @@ class Habitat:
         viable_females: list,
     ) -> list[dict]:
         """
-        Species-first priority pairing with cross-species spillover (Strategy A).
+        Species-first priority pairing with cross-species spillover.
 
         1. Group males and females by species.
         2. Pair each species' own males and females first (shuffled within-species).
@@ -527,6 +533,98 @@ class Habitat:
         for male, female in zip(spillover_males, spillover_females):
             event = self._attempt_mating(male, female)
             mating_events.append(event)
+
+        return mating_events
+
+    @staticmethod
+    def _build_compatibility_matrix(males: list, females: list) -> np.ndarray:
+        """
+        Vectorized pairwise cosine-similarity matrix on the compatibility_genes subset.
+
+        Returns an (M, F) float64 array with values in [-1, 1], where entry [i, j]
+        is the compatibility score between males[i] and females[j].  Shared by
+        Shared by weighted-sampling and stable-matching mating strategies.
+        """
+        from .creature import DEFAULT_TRAIT_GENE_INDICES
+        indices = DEFAULT_TRAIT_GENE_INDICES["compatibility_genes"]
+
+        male_mat = np.stack([m.genes[indices] for m in males])     # (M, 245)
+        female_mat = np.stack([f.genes[indices] for f in females]) # (F, 245)
+
+        dots = male_mat @ female_mat.T  # (M, F)
+
+        male_norms = np.linalg.norm(male_mat, axis=1, keepdims=True)    # (M, 1)
+        female_norms = np.linalg.norm(female_mat, axis=1, keepdims=True) # (F, 1)
+        denom = male_norms @ female_norms.T  # (M, F)
+
+        safe = denom > 1e-10
+        scores = np.where(safe, dots / np.where(safe, denom, 1.0), 0.0)
+        return np.clip(scores, -1.0, 1.0)
+
+    def _mate_weighted_matrix(
+        self,
+        viable_males: list,
+        viable_females: list,
+    ) -> list[dict]:
+        """
+        Full pairwise score matrix with selectivity-weighted sampling.
+
+        1. Build the M×F compatibility score matrix in one vectorized pass.
+        2. Iterate females in random order; each female samples a male using:
+             weight_j = max(0, score[j,f] − threshold_f) ^ sharpness
+           where threshold_f = COMPATIBILITY_FLOOR + 0.15 * female.selectivity
+           and sharpness = 1 + MATING_SHARPNESS_K * mean(male.selectivity, female.selectivity)
+        3. If no available male clears the female's threshold she goes unmated.
+        4. The sampled male is removed from the pool (no double-mating).
+
+        Low selectivity → exponent ≈ 1 → nearly uniform above the floor → liberal
+        hybridisation.  High selectivity → exponent ≈ 4 → sharply peaked at the
+        highest-scoring available male → near-exclusive same-species mating.
+        """
+        from .creature import Creature as _Creature
+
+        if not viable_males or not viable_females:
+            return []
+
+        score_matrix = self._build_compatibility_matrix(viable_males, viable_females)
+        # score_matrix[i, j] = compatibility between males[i] and females[j]
+
+        female_order = list(range(len(viable_females)))
+        np.random.shuffle(female_order)
+
+        available_males = list(range(len(viable_males)))
+        male_selectivities = np.array([m.selectivity for m in viable_males])
+        mating_events: list[dict] = []
+
+        for f_idx in female_order:
+            if not available_males:
+                break
+            female = viable_females[f_idx]
+
+            threshold_f = _Creature.COMPATIBILITY_FLOOR + 0.15 * female.selectivity
+            scores_f = score_matrix[available_males, f_idx]
+            above = np.maximum(0.0, scores_f - threshold_f)
+
+            if above.max() == 0.0:
+                continue
+
+            # Per-pair sharpness: average selectivity of the specific male + this female
+            sel_m = male_selectivities[available_males]
+            sharpness = 1.0 + self.MATING_SHARPNESS_K * (sel_m + female.selectivity) / 2.0
+            weights = above ** sharpness
+
+            total = weights.sum()
+            if total == 0.0:
+                continue
+            probs = weights / total
+
+            chosen_pool_idx = int(np.random.choice(len(available_males), p=probs))
+            chosen_male_idx = available_males[chosen_pool_idx]
+            male = viable_males[chosen_male_idx]
+
+            event = self._attempt_mating(male, female)
+            mating_events.append(event)
+            available_males.pop(chosen_pool_idx)
 
         return mating_events
 
@@ -716,6 +814,8 @@ class Habitat:
 
         if mating_strategy == "species_priority":
             mating_events = self._mate_species_priority(viable_males, viable_females)
+        elif mating_strategy == "weighted_matrix":
+            mating_events = self._mate_weighted_matrix(viable_males, viable_females)
         else:
             # "zip" is the default / fallback for unknown strategy strings
             mating_events = self._mate_zip(viable_males, viable_females)
