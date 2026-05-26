@@ -422,6 +422,184 @@ class TestWeightedMatrixStrategy:
 
 
 # ---------------------------------------------------------------------------
+# Strategy: stable_matching (Gale-Shapley)
+# ---------------------------------------------------------------------------
+
+class TestStableMatchingStrategy:
+
+    # --- Basic smoke tests ---------------------------------------------------
+
+    def test_produces_mating_events(self):
+        hab, majority, minority = _build_two_species_habitat()
+        result = hab.simulate_week(mating_strategy="stable_matching")
+        assert len(result["mating_events"]) > 0
+
+    def test_empty_pools_return_no_events(self):
+        hab = Habitat()
+        result = hab.simulate_week(mating_strategy="stable_matching")
+        assert result["mating_events"] == []
+
+    # --- No-double-matching --------------------------------------------------
+
+    def test_no_male_appears_twice(self):
+        """Each male must appear in at most one event (Gale-Shapley produces a matching)."""
+        hab, majority, minority = _build_two_species_habitat(n_majority=20, n_minority=20)
+        result = hab.simulate_week(mating_strategy="stable_matching")
+        male_ids = [ev["male_id"] for ev in result["mating_events"]]
+        assert len(male_ids) == len(set(male_ids)), "A male appeared in more than one mating event"
+
+    def test_no_female_appears_twice(self):
+        """Each female must appear in at most one event."""
+        hab, majority, minority = _build_two_species_habitat(n_majority=20, n_minority=20)
+        result = hab.simulate_week(mating_strategy="stable_matching")
+        female_ids = [ev["female_id"] for ev in result["mating_events"]]
+        assert len(female_ids) == len(set(female_ids)), "A female appeared in more than one mating event"
+
+    # --- Stability property --------------------------------------------------
+
+    def test_no_blocking_pairs(self):
+        """
+        Verify the stability guarantee: no unmatched (male, female) pair exists
+        where both would prefer each other over their current partners.
+
+        We test this directly on _gale_shapley() with a known score matrix so
+        the result is deterministic (fixed seed via np.random.seed).
+        """
+        from evolution_simulator.habitat import _gale_shapley
+
+        np.random.seed(0)
+        M, F = 8, 8
+        rng = np.random.default_rng(42)
+
+        # Build a score matrix where same-index pairs have high scores,
+        # so the expected stable matching is the diagonal.
+        scores = rng.uniform(-0.5, 0.5, (M, F))
+        # Boost diagonal to ensure a clear preference ordering
+        for k in range(min(M, F)):
+            scores[k, k] = 0.95
+
+        floor = 0.70
+        male_thresholds = np.full(M, floor)
+        female_thresholds = np.full(F, floor)
+
+        # Run the algorithm multiple times with different noise seeds
+        for trial in range(10):
+            pairs = _gale_shapley(scores, male_thresholds, female_thresholds)
+            matched_males = {p[0] for p in pairs}
+            matched_females = {p[1] for p in pairs}
+            male_of = {p[0]: p[1] for p in pairs}    # male i → his female partner
+            female_of = {p[1]: p[0] for p in pairs}  # female j → her male partner
+
+            # Check every unmatched (male, female) pair for blocking
+            for i in range(M):
+                for j in range(F):
+                    # Only care about pairs where both could potentially mate
+                    if scores[i, j] < floor:
+                        continue
+
+                    i_partner = male_of.get(i)    # None if unmatched
+                    j_partner = female_of.get(j)  # None if unmatched
+
+                    # Does male i prefer female j over his current partner?
+                    i_prefers_j = (
+                        i_partner is None or          # i is unmatched (would always prefer j)
+                        scores[i, j] > scores[i, i_partner]
+                    )
+                    # Does female j prefer male i over her current partner?
+                    j_prefers_i = (
+                        j_partner is None or          # j is free (would always prefer i)
+                        scores[j_partner, j] < scores[i, j]  # NOTE: scores[male, female]
+                    )
+
+                    assert not (i_prefers_j and j_prefers_i), (
+                        f"Trial {trial}: blocking pair found: male {i} (partner={i_partner}) "
+                        f"and female {j} (partner={j_partner}), score={scores[i,j]:.3f}"
+                    )
+
+    # --- Minority protection -------------------------------------------------
+
+    def test_minority_gets_more_matings_than_zip(self):
+        """stable_matching should protect minority species at least as well as zip."""
+        def count_minority_births(strategy: str, n_trials: int = 50) -> float:
+            total = 0
+            for seed in range(n_trials):
+                hab, majority, minority = _build_two_species_habitat(
+                    n_majority=40, n_minority=4, rng_seed=seed
+                )
+                result = hab.simulate_week(mating_strategy=strategy)
+                minority_ids = {c.creature_id for c in minority}
+                births = sum(
+                    1 for ev in result["mating_events"]
+                    if ev.get("fertilized")
+                    and ev["male_id"] in minority_ids
+                    and ev["female_id"] in minority_ids
+                )
+                total += births
+            return total / n_trials
+
+        zip_mean = count_minority_births("zip")
+        sm_mean = count_minority_births("stable_matching")
+        assert sm_mean > zip_mean, (
+            f"stable_matching ({sm_mean:.2f}) should protect minority better than zip ({zip_mean:.2f})"
+        )
+
+    # --- _gale_shapley unit tests --------------------------------------------
+
+    def test_gale_shapley_empty_inputs(self):
+        from evolution_simulator.habitat import _gale_shapley
+        assert _gale_shapley(np.zeros((0, 5)), np.array([]), np.full(5, 0.7)) == []
+        assert _gale_shapley(np.zeros((5, 0)), np.full(5, 0.7), np.array([])) == []
+
+    def test_gale_shapley_all_below_threshold(self):
+        """When no scores clear the threshold, nobody is matched."""
+        from evolution_simulator.habitat import _gale_shapley
+        scores = np.full((4, 4), 0.5)  # all below 0.70
+        thresholds = np.full(4, 0.70)
+        pairs = _gale_shapley(scores, thresholds, thresholds)
+        assert pairs == []
+
+    def test_gale_shapley_perfect_diagonal(self):
+        """
+        When each male scores 0.99 with his same-index female and 0.71 with all
+        others, the stable matching should be the diagonal pairing.
+        """
+        from evolution_simulator.habitat import _gale_shapley
+        N = 5
+        # Off-diagonal scores all just above floor (0.71); diagonal at 0.99
+        scores = np.full((N, N), 0.71)
+        np.fill_diagonal(scores, 0.99)
+        thresholds = np.full(N, 0.70)
+
+        # Run many trials to verify robustness against noise
+        for seed in range(20):
+            np.random.seed(seed)
+            pairs = _gale_shapley(scores, thresholds, thresholds)
+            pair_dict = dict(pairs)
+            for k in range(N):
+                assert pair_dict.get(k) == k, (
+                    f"seed={seed}: male {k} matched to {pair_dict.get(k)}, expected {k}"
+                )
+
+    def test_gale_shapley_unequal_pool_sizes(self):
+        """With more males than females, some males go unmatched; no female is double-matched."""
+        from evolution_simulator.habitat import _gale_shapley
+        M, F = 6, 3
+        rng = np.random.default_rng(7)
+        scores = rng.uniform(0.72, 0.99, (M, F))  # all above floor
+        thresholds_m = np.full(M, 0.70)
+        thresholds_f = np.full(F, 0.70)
+        pairs = _gale_shapley(scores, thresholds_m, thresholds_f)
+        # At most F pairs (one per female)
+        assert len(pairs) <= F
+        # No female matched twice
+        matched_females = [p[1] for p in pairs]
+        assert len(matched_females) == len(set(matched_females))
+        # No male matched twice
+        matched_males = [p[0] for p in pairs]
+        assert len(matched_males) == len(set(matched_males))
+
+
+# ---------------------------------------------------------------------------
 # Unknown strategy → zip fallback
 # ---------------------------------------------------------------------------
 

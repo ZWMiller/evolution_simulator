@@ -1,4 +1,5 @@
 import uuid
+from collections import deque
 import numpy as np
 from typing import TYPE_CHECKING, Optional
 
@@ -160,6 +161,172 @@ DEFAULT_WATER_GENE_INDICES: list[int] = (
     + list(range(115, 175)) # immune, stress, environmental adaptation loci
     + list(range(270, 345)) # broad genomic coverage
 )  # 175 total indices
+
+
+def _gale_shapley(
+    score_matrix: np.ndarray,
+    male_thresholds: np.ndarray,
+    female_thresholds: np.ndarray,
+) -> list[tuple[int, int]]:
+    """
+    Male-proposing Gale-Shapley deferred-acceptance stable matching.
+
+    Finds a stable matching between M males and F females given a pairwise
+    compatibility score matrix and per-creature acceptance thresholds.  A
+    matching is *stable* if no unmatched (male, female) pair both prefer each
+    other over their current partners — i.e. no blocking pair exists.
+
+    Parameters
+    ----------
+    score_matrix : (M, F) float array
+        Pairwise cosine similarity scores in [-1, 1].  Entry [i, j] is the
+        compatibility score between male i and female j.  Produced by
+        Habitat._build_compatibility_matrix().
+    male_thresholds : (M,) float array
+        Each male's personal acceptance floor.  He will not propose to any
+        female whose score is below this value.
+    female_thresholds : (F,) float array
+        Each female's personal acceptance floor.  She will auto-reject any
+        proposer whose score is below this value.
+
+    Returns
+    -------
+    list of (male_idx, female_idx) int tuples
+        Indices into the original males/females lists passed to
+        _mate_stable_matching.  Only matched pairs are returned; unmatched
+        individuals are omitted.  Each matched pair is subsequently passed to
+        _attempt_mating, which re-checks is_compatible() and calls reproduce().
+        The algorithm itself does not trigger conception — it only determines
+        who attempts to mate with whom.
+
+    Algorithm
+    ---------
+    Each free male proposes to his top-ranked remaining candidate.  A free
+    female tentatively accepts; an engaged female accepts if the new proposer
+    scores higher for her than her current partner (releasing the old partner
+    back to the free pool).  Rejected males advance to their next candidate.
+    The loop terminates when every free male has exhausted his list.
+
+    Assumptions and baked-in choices
+    ---------------------------------
+    1.  **Male-proposing direction.**  This gives every male his best possible
+        partner across all stable matchings, and every female her worst.  The
+        direction is biologically arbitrary — there is no neutral variant.
+        Swapping to female-proposing simply flips which side is optimal vs.
+        pessimal.
+
+    2.  **Bilateral threshold pre-filtering.**  A female j is included in male
+        i's preference list only if score[i,j] >= BOTH male_thresholds[i] AND
+        female_thresholds[j].  This is an optimisation: a female will never
+        accept a score below her floor, so proposals below it are provably
+        wasted.  Skipping them reduces the worst-case proposal count without
+        changing the set of possible stable matchings.
+
+    3.  **Tie-breaking via noise.**  Preference lists are ranked on
+        score_matrix + N(0, NOISE_SIGMA).  The noise is sampled once before the
+        loop so rankings are consistent throughout a single call.  Threshold
+        checks always use the *original* score_matrix — noise must never push a
+        score across a compatibility floor.  NOISE_SIGMA = 0.005 is well below
+        the minimum meaningful score gap (~0.01 between near-identical
+        same-species pairs with genome noise = 0.05).
+
+    4.  **Female preference comparison uses noisy scores.**  When a female
+        decides whether to swap her current partner for a new proposer, she
+        compares noisy[new, j] vs noisy[current, j].  Using the same noisy
+        matrix that determined the initial ranking keeps comparisons consistent
+        and ensures no two males have exactly equal appeal to the same female.
+
+    5.  **Threshold asymmetry vs is_compatible().**  This function uses
+        *individual* thresholds (FLOOR + 0.15 * own_selectivity) for
+        pre-filtering and acceptance.  Creature.is_compatible() uses the
+        *average* selectivity of the pair.  A pair that clears both individual
+        thresholds here can still fail is_compatible() if the pair-average
+        raises the combined bar above one partner's score.  _attempt_mating()
+        re-checks is_compatible() after the matching, so these edge cases
+        produce a mating_event with compatible=False rather than a birth.
+
+    6.  **Deque order (FIFO) affects which stable matching is found.**  When
+        multiple males become free in the same round, they are processed in the
+        order they were released.  Multiple stable matchings can exist; FIFO
+        does not guarantee any specific one.  Combined with noise (assumption 3)
+        this introduces stochasticity without biasing toward any fixed outcome.
+    """
+    M, F = score_matrix.shape
+    if M == 0 or F == 0:
+        return []
+
+    NOISE_SIGMA = 0.005  # see assumption 3
+    noisy = score_matrix + np.random.normal(0, NOISE_SIGMA, score_matrix.shape)
+
+    # Build each male's ordered preference list (assumptions 2 and 3).
+    # male_prefs[i] is sorted from most-preferred (index 0) to least-preferred.
+    # Only females that clear BOTH individual thresholds are included.
+    male_prefs: list[list[int]] = []
+    for i in range(M):
+        eligible_mask = (
+            (score_matrix[i] >= male_thresholds[i]) &   # male's own floor
+            (score_matrix[i] >= female_thresholds)       # female's own floor
+        )
+        eligible_indices = np.where(eligible_mask)[0]
+        if eligible_indices.size == 0:
+            male_prefs.append([])
+            continue
+        order = np.argsort(noisy[i, eligible_indices])[::-1]  # highest noisy score first
+        male_prefs.append(eligible_indices[order].tolist())
+
+    # Algorithm state ----------------------------------------------------------
+    # male_next[i]      : next index into male_prefs[i] for the next proposal.
+    #                     Only ever increments — a male never re-proposes to a
+    #                     female who has already rejected him.
+    # male_partner[i]   : current female partner index, or -1 if unmatched.
+    # female_partner[j] : current male partner index, or -1 if free.
+    male_next:      list[int] = [0] * M
+    male_partner:   list[int] = [-1] * M
+    female_partner: list[int] = [-1] * F
+
+    # Seed the free queue with every male who has at least one candidate.
+    # Males with empty preference lists (no compatible females) are never queued
+    # and remain permanently unmatched, which is correct.
+    free: deque[int] = deque(i for i in range(M) if male_prefs[i])
+
+    while free:
+        i = free.popleft()
+
+        # A male may have exhausted his list since he was last queued (e.g. he
+        # was re-queued after a rejection, then his remaining candidates were
+        # all already visited).  Guard prevents index-out-of-bounds.
+        if male_next[i] >= len(male_prefs[i]):
+            continue
+
+        j = male_prefs[i][male_next[i]]
+        male_next[i] += 1  # advance regardless of outcome; i never re-proposes to j
+
+        if female_partner[j] == -1:
+            # j is free: tentative acceptance
+            female_partner[j] = i
+            male_partner[i] = j
+
+        else:
+            current = female_partner[j]
+            # Female j compares i to her current partner using noisy scores
+            # (assumption 4) to break ties consistently
+            if noisy[i, j] > noisy[current, j]:
+                # j prefers i; release current partner back to the free pool
+                male_partner[current] = -1
+                female_partner[j] = i
+                male_partner[i] = j
+                if male_next[current] < len(male_prefs[current]):
+                    free.append(current)
+            else:
+                # j rejects i; re-queue i only if he still has candidates
+                if male_next[i] < len(male_prefs[i]):
+                    free.append(i)
+
+    # Return matched pairs.  _attempt_mating will re-run is_compatible() on
+    # each pair (assumption 5), so pairs that pass Gale-Shapley thresholds but
+    # fail the pair-averaged is_compatible() threshold produce a compatible=False
+    # event rather than offspring.
+    return [(i, male_partner[i]) for i in range(M) if male_partner[i] != -1]
 
 
 class Habitat:
@@ -628,6 +795,56 @@ class Habitat:
 
         return mating_events
 
+    def _mate_stable_matching(
+        self,
+        viable_males: list,
+        viable_females: list,
+    ) -> list[dict]:
+        """
+        Mutual-preference stable matching via Gale-Shapley deferred acceptance.
+
+        Builds the full M×F compatibility score matrix, computes each creature's
+        personal acceptance threshold from its selectivity trait, runs the
+        module-level _gale_shapley() function to find a stable set of pairs, then
+        calls _attempt_mating() on each pair.
+
+        See _gale_shapley() for the full algorithm description, assumptions, and
+        documented baked-in choices (male-proposing direction, bilateral threshold
+        pre-filtering, tie-breaking noise, threshold asymmetry vs is_compatible).
+
+        Unlike weighted_matrix, every matched pair is the best stable outcome for
+        the male — no male would prefer an unmatched female who also prefers him.
+        Hybridisation occurs only when a cross-species individual genuinely ranks
+        above all available same-species candidates for both parties.
+        """
+        from .creature import Creature as _Creature
+
+        if not viable_males or not viable_females:
+            return []
+
+        score_matrix = self._build_compatibility_matrix(viable_males, viable_females)
+
+        # Per-creature thresholds mirror the formula in is_compatible(), but use
+        # each creature's OWN selectivity rather than the pair average.  See
+        # _gale_shapley assumption 5 for the implications of this asymmetry.
+        male_thresholds = np.array([
+            _Creature.COMPATIBILITY_FLOOR + 0.15 * m.selectivity
+            for m in viable_males
+        ])
+        female_thresholds = np.array([
+            _Creature.COMPATIBILITY_FLOOR + 0.15 * f.selectivity
+            for f in viable_females
+        ])
+
+        pairs = _gale_shapley(score_matrix, male_thresholds, female_thresholds)
+
+        mating_events: list[dict] = []
+        for male_idx, female_idx in pairs:
+            event = self._attempt_mating(viable_males[male_idx], viable_females[female_idx])
+            mating_events.append(event)
+
+        return mating_events
+
     @staticmethod
     def _attempt_mating(male, female) -> dict:
         """Run one compatibility check + optional reproduce(); return the event dict."""
@@ -816,6 +1033,8 @@ class Habitat:
             mating_events = self._mate_species_priority(viable_males, viable_females)
         elif mating_strategy == "weighted_matrix":
             mating_events = self._mate_weighted_matrix(viable_males, viable_females)
+        elif mating_strategy == "stable_matching":
+            mating_events = self._mate_stable_matching(viable_males, viable_females)
         else:
             # "zip" is the default / fallback for unknown strategy strings
             mating_events = self._mate_zip(viable_males, viable_females)
