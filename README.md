@@ -283,11 +283,19 @@ Speciation events (per-week when logged, and complete in `summary.json`) look li
 
 ```jsonc
 { "new_species": "...", "parent_species": "...", "creature_id": "...",
-  "week": 1240, "event_type": "cladogenesis" }   // or "anagenesis"
+  "week": 1240, "event_type": "cladogenesis_newborn" }
+// event_type values:
+//   "cladogenesis_newborn"          – newborn outside all living species; promoted from candidate
+//   "cladogenesis_kmeans_subcluster"– k-means split detector found reproductively-isolated sub-clusters
+//   "cladogenesis_bootstrap"        – founding species registration
+//   "anagenesis"                    – in-place phenotype transformation (chronospecies)
 ```
 
 Visualize a run with `python visualizer_basic.py` (static charts) or `python visualizer_advanced.py`
-(interactive Dash app with a phylogeny that distinguishes cladogenesis from anagenesis).
+(interactive Dash app). The advanced visualizer has four modes: **HABITAT** (cytoscape species map),
+**PHYLOGENY** (species tree with distinct colours and line styles per event type), **FAMILY TREE**
+(per-creature ancestry wheel), and **TRAIT COMPARE** (multi-species, multi-metric time-series with
+optional anagenesis-descendant overlay).
 
 ---
 
