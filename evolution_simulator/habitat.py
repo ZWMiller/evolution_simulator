@@ -449,10 +449,122 @@ class Habitat:
     # Daily simulation
     # ------------------------------------------------------------------
 
+    # ------------------------------------------------------------------
+    # Mating helpers
+    # ------------------------------------------------------------------
+
+    def _mate_zip(
+        self,
+        viable_males: list,
+        viable_females: list,
+    ) -> list[dict]:
+        """
+        Legacy zip-pairing strategy.
+
+        Shuffles all viable males and females habitat-wide, then zips them
+        into 1:1 pairs.  Any cross-species pairing that fails the compatibility
+        check wastes both individuals' mating opportunity for that week, which
+        creates a severe minority-species penalty (Allee effect).
+        """
+        np.random.shuffle(viable_males)
+        np.random.shuffle(viable_females)
+        mating_events: list[dict] = []
+        for male, female in zip(viable_males, viable_females):
+            event = self._attempt_mating(male, female)
+            mating_events.append(event)
+        return mating_events
+
+    def _mate_species_priority(
+        self,
+        viable_males: list,
+        viable_females: list,
+    ) -> list[dict]:
+        """
+        Species-first priority pairing with cross-species spillover (Strategy A).
+
+        1. Group males and females by species.
+        2. Pair each species' own males and females first (shuffled within-species).
+        3. Collect all unpaired individuals into a shared spillover pool.
+        4. Zip-pair the spillover pool for cross-species hybridisation.
+
+        Eliminates the minority-species Allee effect: each species gets mating
+        proportional to its own sex ratio, regardless of relative abundance.
+        Hybridisation is still possible for surplus/unmatched individuals.
+        """
+        from collections import defaultdict
+
+        males_by_species: dict[str, list] = defaultdict(list)
+        females_by_species: dict[str, list] = defaultdict(list)
+        for m in viable_males:
+            males_by_species[m.species].append(m)
+        for f in viable_females:
+            females_by_species[f.species].append(f)
+
+        mating_events: list[dict] = []
+        spillover_males: list = []
+        spillover_females: list = []
+
+        all_species = set(males_by_species) | set(females_by_species)
+        species_order = list(all_species)
+        np.random.shuffle(species_order)
+
+        for sp in species_order:
+            sp_males = males_by_species.get(sp, [])
+            sp_females = females_by_species.get(sp, [])
+            np.random.shuffle(sp_males)
+            np.random.shuffle(sp_females)
+            for male, female in zip(sp_males, sp_females):
+                event = self._attempt_mating(male, female)
+                mating_events.append(event)
+            # Surplus individuals go to spillover
+            n_paired = min(len(sp_males), len(sp_females))
+            spillover_males.extend(sp_males[n_paired:])
+            spillover_females.extend(sp_females[n_paired:])
+
+        # Cross-species hybridisation pass on leftovers
+        np.random.shuffle(spillover_males)
+        np.random.shuffle(spillover_females)
+        for male, female in zip(spillover_males, spillover_females):
+            event = self._attempt_mating(male, female)
+            mating_events.append(event)
+
+        return mating_events
+
+    @staticmethod
+    def _attempt_mating(male, female) -> dict:
+        """Run one compatibility check + optional reproduce(); return the event dict."""
+        compatible, score, reason = male.is_compatible(female)
+        event: dict = {
+            "male_id": male.creature_id,
+            "female_id": female.creature_id,
+            "compatibility_score": round(float(score), 4),
+            "compatible": compatible,
+            "fertilized": False,
+            "litter_size": 0,
+            "offspring_ids": [],
+        }
+        if compatible:
+            litter = male.reproduce(female)
+            if litter:
+                event["fertilized"] = True
+                event["litter_size"] = len(litter)
+                event["offspring_ids"] = [c.creature_id for c in litter]
+                if male.species != female.species:
+                    event["hybridization"] = {
+                        "male_species": male.species,
+                        "female_species": female.species,
+                    }
+            else:
+                event["reason"] = "infertile"
+        else:
+            event["reason"] = reason
+        return event
+
     def simulate_week(
         self,
         species_registry=None,
         isolation_probability: float = 0.001,
+        mating_strategy: str = "zip",
     ) -> dict:
         """
         Advance the habitat by one week.
@@ -467,8 +579,8 @@ class Habitat:
         6. Apply density-dependent predation to survivors of step 3.
         7. Remove all dead creatures from the population.
         8. Migration: willing creatures move to a random passable neighbour.
-        9. Mating: randomly pair viable males and females; offspring stored at
-           term in female._pending_offspring.
+        9. Mating: pair viable males and females according to *mating_strategy*;
+           offspring stored at term in female._pending_offspring.
         10. Add newborns to the habitat population.
         11. Attempt spontaneous route isolation (very low probability).
 
@@ -601,39 +713,12 @@ class Habitat:
             and c.is_sexually_viable
             and not c.is_pregnant
         ]
-        np.random.shuffle(viable_males)
-        np.random.shuffle(viable_females)
 
-        mating_events: list[dict] = []
-        for male, female in zip(viable_males, viable_females):
-            compatible, score, reason = male.is_compatible(female)
-            event: dict = {
-                "male_id": male.creature_id,
-                "female_id": female.creature_id,
-                "compatibility_score": round(float(score), 4),
-                "compatible": compatible,
-                "fertilized": False,
-                "litter_size": 0,
-                "offspring_ids": [],
-            }
-            if compatible:
-                # reproduce() re-checks compatibility internally (small overhead)
-                # and applies the fertility Bernoulli draw
-                litter = male.reproduce(female)
-                if litter:
-                    event["fertilized"] = True
-                    event["litter_size"] = len(litter)
-                    event["offspring_ids"] = [c.creature_id for c in litter]
-                    if male.species != female.species:
-                        event["hybridization"] = {
-                            "male_species": male.species,
-                            "female_species": female.species,
-                        }
-                else:
-                    event["reason"] = "infertile"
-            else:
-                event["reason"] = reason
-            mating_events.append(event)
+        if mating_strategy == "species_priority":
+            mating_events = self._mate_species_priority(viable_males, viable_females)
+        else:
+            # "zip" is the default / fallback for unknown strategy strings
+            mating_events = self._mate_zip(viable_males, viable_females)
 
         # ------------------------------------------------------------------
         # 10. Add newborns to the population; check for speciation events
