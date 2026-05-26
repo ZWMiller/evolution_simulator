@@ -104,7 +104,7 @@ def _back_button(state: dict) -> html.Button | None:
 
 def _graph(figure, margin_bottom="4px") -> html.Div:
     return html.Div(
-        dcc.Graph(figure=figure, config={"displayModeBar": False},
+        dcc.Graph(figure=figure, config={"displayModeBar": "hover", "scrollZoom": True},
                   responsive=True),
         style=_s(marginBottom=margin_bottom),
     )

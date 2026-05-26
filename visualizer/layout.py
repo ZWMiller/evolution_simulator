@@ -78,9 +78,10 @@ def build(run: dict) -> html.Div:
             # ── Mode switcher ─────────────────────────────────────────────────
             html.Div(
                 [
-                    _mode_btn("HABITAT",     "habitat",     active=True),
-                    _mode_btn("PHYLOGENY",   "phylogeny"),
-                    _mode_btn("FAMILY TREE", "family_tree"),
+                    _mode_btn("HABITAT",       "habitat",            active=True),
+                    _mode_btn("PHYLOGENY",     "phylogeny"),
+                    _mode_btn("FAMILY TREE",   "family_tree"),
+                    _mode_btn("TRAIT COMPARE", "trait_comparison"),
                 ],
                 id="mode-switcher",
                 style=dict(
@@ -125,7 +126,7 @@ def build(run: dict) -> html.Div:
         dcc.Graph(
             id="phylogeny-graph",
             figure={},
-            config={"displayModeBar": False},
+            config={"displayModeBar": "hover", "scrollZoom": True},
             responsive=True,
             style={"height": "100%"},
             clear_on_unhover=True,
@@ -192,7 +193,7 @@ def build(run: dict) -> html.Div:
             dcc.Graph(
                 id="family-tree-graph",
                 figure={},
-                config={"displayModeBar": False},
+                config={"displayModeBar": "hover", "scrollZoom": True},
                 responsive=True,
                 style={"flex": "1", "minHeight": "0"},
                 clear_on_unhover=True,
@@ -206,9 +207,97 @@ def build(run: dict) -> html.Div:
         ),
     )
 
-    # ── Canvas container (all three layers stacked) ───────────────────────────
+    # ── Trait comparison canvas ───────────────────────────────────────────────
+    # Build metric options from actual logged fields so the list stays current
+    # even if new traits are added to the simulation.
+    _sample_rows = next(iter(run["species_global"].values()), [])
+    _sample_row  = _sample_rows[0] if _sample_rows else {}
+    _logged_traits = sorted(
+        k for k in _sample_row
+        if k not in ("week", "count", "mean_generation")
+    )
+    tc_metric_options = [
+        {"label": "── Population ──",   "value": "__h_pop",    "disabled": True},
+        {"label": "Population count",   "value": "count"},
+        {"label": "Mean generation",    "value": "mean_generation"},
+        {"label": "── Resource ──",     "value": "__h_res",    "disabled": True},
+        {"label": "Food probability",   "value": "mean_food_prob"},
+        {"label": "Water probability",  "value": "mean_water_prob"},
+        {"label": "── Traits ──",       "value": "__h_traits", "disabled": True},
+    ] + [{"label": t.replace("_", " "), "value": t} for t in _logged_traits]
+
+    _dd_style = dict(
+        backgroundColor="#0b0f0b", color=TEXT, fontFamily=FONT,
+        fontSize="12px", border=f"1px solid {BORDER}", borderRadius="2px",
+    )
+    _lbl_style = dict(
+        color=DIMTEXT, fontSize="11px", fontFamily=FONT,
+        alignSelf="center", marginRight="8px", whiteSpace="nowrap",
+    )
+
+    trait_comparison_canvas = html.Div(
+        [
+            # ── Control bar ───────────────────────────────────────────────────
+            html.Div(
+                [
+                    html.Span("species:", style=_lbl_style),
+                    dcc.Dropdown(
+                        id="tc-species-dropdown",
+                        options=[{"label": sp, "value": sp} for sp in all_species],
+                        multi=True,
+                        placeholder="select one or more species…",
+                        style={**_dd_style, "width": "380px"},
+                    ),
+                    html.Span("metric:", style={**_lbl_style, "marginLeft": "20px"}),
+                    dcc.Dropdown(
+                        id="tc-metric-dropdown",
+                        options=tc_metric_options,
+                        multi=True,
+                        placeholder="select one or more metrics…",
+                        style={**_dd_style, "width": "340px"},
+                    ),
+                    dcc.Checklist(
+                        id="tc-anagenesis-check",
+                        options=[{"label": " include anagenesis descendants",
+                                  "value": "yes"}],
+                        value=[],
+                        style=dict(
+                            marginLeft="24px", color=DIMTEXT,
+                            fontFamily=FONT, fontSize="11px",
+                            alignSelf="center",
+                        ),
+                        inputStyle={"marginRight": "6px", "accentColor": "#3a7a3a"},
+                    ),
+                ],
+                style=dict(
+                    display="flex", alignItems="center",
+                    padding="8px 16px", height="54px",
+                    backgroundColor=BG, borderBottom=f"1px solid {BORDER}",
+                    boxSizing="border-box", flexShrink="0",
+                    gap="4px",
+                ),
+            ),
+            # ── Chart ─────────────────────────────────────────────────────────
+            dcc.Graph(
+                id="trait-comparison-graph",
+                figure={},
+                config={"displayModeBar": "hover", "scrollZoom": True},
+                responsive=True,
+                style={"flex": "1", "minHeight": "0"},
+            ),
+        ],
+        id="trait-comparison-canvas",
+        style=dict(
+            position="absolute", inset="0",
+            display="none", overflow="hidden",
+            flexDirection="column",
+        ),
+    )
+
+    # ── Canvas container (all four layers stacked) ────────────────────────────
     canvas_area = html.Div(
-        [habitat_canvas, phylogeny_canvas, family_tree_canvas],
+        [habitat_canvas, phylogeny_canvas, family_tree_canvas,
+         trait_comparison_canvas],
         id="canvas-area",
         style=dict(
             flex="1", position="relative", overflow="hidden", minWidth="200px",

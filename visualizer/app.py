@@ -197,10 +197,11 @@ def make_app(run: dict) -> dash.Dash:
 
     # ── Canvas visibility + timeline visibility ────────────────────────────────
     @app.callback(
-        Output("habitat-canvas",    "style"),
-        Output("phylogeny-canvas",  "style"),
-        Output("family-tree-canvas","style"),
-        Output("timeline",          "style"),
+        Output("habitat-canvas",          "style"),
+        Output("phylogeny-canvas",        "style"),
+        Output("family-tree-canvas",      "style"),
+        Output("trait-comparison-canvas", "style"),
+        Output("timeline",                "style"),
         Input("view-mode", "data"),
     )
     def update_canvas_visibility(mode: str):
@@ -217,11 +218,13 @@ def make_app(run: dict) -> dash.Dash:
         _timeline_hide = dict(display="none")
 
         if mode == "phylogeny":
-            return _hide, _show_block, _hide, _timeline_hide
+            return _hide, _show_block, _hide, _hide, _timeline_hide
         if mode == "family_tree":
-            return _hide, _hide, _show_flex, _timeline_hide
+            return _hide, _hide, _show_flex, _hide, _timeline_hide
+        if mode == "trait_comparison":
+            return _hide, _hide, _hide, _show_flex, _timeline_hide
         # default: habitat
-        return _show_block, _hide, _hide, _timeline_show
+        return _show_block, _hide, _hide, _hide, _timeline_show
 
     # ── Mode button highlight ──────────────────────────────────────────────────
     @app.callback(
@@ -229,9 +232,9 @@ def make_app(run: dict) -> dash.Dash:
         Input("view-mode", "data"),
     )
     def highlight_mode_btn(mode: str):
-        modes = ["habitat", "phylogeny", "family_tree"]
+        modes = ["habitat", "phylogeny", "family_tree", "trait_comparison"]
         labels = {"habitat": "HABITAT", "phylogeny": "PHYLOGENY",
-                  "family_tree": "FAMILY TREE"}
+                  "family_tree": "FAMILY TREE", "trait_comparison": "TRAIT COMPARE"}
         styles = []
         for m in modes:
             active = (m == mode)
@@ -439,5 +442,24 @@ def make_app(run: dict) -> dash.Dash:
         if not state:
             return [], _PANEL_CLOSED_STYLE
         return render(state, run, day), _PANEL_OPEN_STYLE
+
+    # ── Trait comparison figure ────────────────────────────────────────────────
+    @app.callback(
+        Output("trait-comparison-graph", "figure"),
+        Input("view-mode",           "data"),
+        Input("tc-species-dropdown", "value"),
+        Input("tc-metric-dropdown",  "value"),
+        Input("tc-anagenesis-check", "value"),
+    )
+    def render_trait_comparison(mode, species, metrics, anagenesis_val):
+        if mode != "trait_comparison":
+            return no_update
+        include_anagenesis = bool(anagenesis_val)
+        return figs.trait_comparison(
+            run,
+            selected_species=species or [],
+            selected_metrics=[m for m in (metrics or []) if not m.startswith("__h_")],
+            include_anagenesis=include_anagenesis,
+        )
 
     return app

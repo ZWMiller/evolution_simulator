@@ -316,6 +316,7 @@ class SpeciesRegistry:
                 "members": {creature.creature_id},
                 "first_creature_id": creature.creature_id,
                 "peak_members": 1,
+                "origin": "newborn",
             }
 
         return creature.species
@@ -408,12 +409,13 @@ class SpeciesRegistry:
                     else cand["compat"]
                 )
                 self._add_to_registry(new_name, cand["genes"], centroid=centroid)
+                origin = cand.get("origin", "newborn")
                 ev = {
                     "new_species": new_name,
                     "parent_species": cand["parent_species"],
                     "creature_id": cand["first_creature_id"],
                     "week": current_week,
-                    "event_type": "cladogenesis",
+                    "event_type": f"cladogenesis_{origin}",
                 }
                 self.speciation_events.append(ev)
                 promoted_events.append(ev)
@@ -503,10 +505,12 @@ class SpeciesRegistry:
                         "members": {m.creature_id for m in sub_members},
                         "first_creature_id": rep.creature_id,
                         "peak_members": len(sub_members),
+                        "origin": "kmeans_subcluster",
                     }
 
     def detect_anagenesis(
-        self, alive_creatures: "list[Creature]", current_week: int
+        self, alive_creatures: "list[Creature]", current_week: int,
+        pending_only: bool = False,
     ) -> list[dict]:
         """
         Detect a lineage that has TRANSFORMED over time without splitting
@@ -522,6 +526,11 @@ class SpeciesRegistry:
         lineage replacement); dead ancestors keep their labels — the log is the
         fossil record.
 
+        pending_only : if True, only process species already in
+            _anagenesis_pending (rebound-check or fire); skip species not yet
+            tracked.  Used for the weekly between-cadence poll so the persistence
+            clock is week-precise rather than rounded to respeciate_every.
+
         Returns the list of anagenesis events created this call.
         """
         split_parents = {cand["parent_species"] for cand in self._candidates.values()}
@@ -529,6 +538,8 @@ class SpeciesRegistry:
         by_species: dict[str, list] = {}
         for c in alive_creatures:
             if c.species in self._registry:
+                if pending_only and c.species not in self._anagenesis_pending:
+                    continue
                 by_species.setdefault(c.species, []).append(c)
 
         events: list[dict] = []
@@ -557,7 +568,14 @@ class SpeciesRegistry:
             # Persistence gate: the transformation must hold below threshold for
             # anagenesis_weeks before a descendant is named, so a transient dip
             # that rebounds is not mistaken for a chronospecies boundary.
-            first_seen = self._anagenesis_pending.setdefault(sp, current_week)
+            # In pending_only mode we only update the clock for tracked species;
+            # in full mode setdefault registers the first dip week.
+            if pending_only:
+                first_seen = self._anagenesis_pending.get(sp)
+                if first_seen is None:
+                    continue
+            else:
+                first_seen = self._anagenesis_pending.setdefault(sp, current_week)
             if current_week - first_seen < self.anagenesis_weeks:
                 continue
 
@@ -568,6 +586,29 @@ class SpeciesRegistry:
             if len(mover_pairs) < self.min_species_population:
                 continue
 
+            mover_indices = [i for i, _ in mover_pairs]
+            mover_centroid_ph = ph[mover_indices].mean(axis=0)
+            mover_centroid_ph_c = mover_centroid_ph - 0.5
+
+            # Deduplication guard: if the mover phenotype centroid is already
+            # within anagenesis_threshold of an existing species' frozen type
+            # phenotype, the movers have drifted into a region already occupied
+            # by a confirmed species.  Reassign them there instead of minting a
+            # redundant new lineage (prevents cascade re-registration of the same
+            # population shift across multiple detection cycles).
+            existing_match: Optional[str] = None
+            for existing_sp, existing_type_ph in self._type_phenotype.items():
+                if existing_sp == sp:
+                    continue
+                if self._cos(mover_centroid_ph_c, existing_type_ph - 0.5) >= self.anagenesis_threshold:
+                    existing_match = existing_sp
+                    break
+            if existing_match is not None:
+                for _, m in mover_pairs:
+                    m.species = existing_match
+                self._anagenesis_pending.pop(sp, None)
+                continue
+
             rep = max(mover_pairs, key=lambda im: self._cos(phc[im[0]], cc))[1]
             movers = [m for _, m in mover_pairs]
             mover_compat = np.mean(
@@ -575,6 +616,13 @@ class SpeciesRegistry:
             )
             new_name = self._unique_name()
             self._add_to_registry(new_name, rep.genes, centroid=mover_compat)
+            # Anchor the anagenesis type phenotype to the actual mover population
+            # centroid rather than to compute_phenotype(rep.genes).  Because OWA
+            # is nonlinear, a single individual's phenotype != the population mean
+            # phenotype; using the individual creates an immediate discrepancy that
+            # restarts the persistence clock and produces cascade re-fires at the
+            # minimum possible interval (2 × respeciate_every).
+            self._type_phenotype[new_name] = mover_centroid_ph
             for m in movers:
                 m.species = new_name
             ev = {
@@ -889,7 +937,7 @@ class SpeciesRegistry:
             "new_species": name,
             "parent_species": parent_species,
             "creature_id": creature.creature_id,
-            "event_type": "cladogenesis",
+            "event_type": "cladogenesis_bootstrap",
         })
         return name
 

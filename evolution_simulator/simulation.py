@@ -356,6 +356,12 @@ class SimulationRunner:
             self.species_registry.refresh_centroids(all_alive)
             self.species_registry.detect_anagenesis(all_alive, self.week)
         self.species_registry.promote_candidates(all_alive, self.week)
+        # Weekly poll for species already in the anagenesis pending state: check
+        # every week whether the clock has expired (fire) or the population has
+        # rebounded (reset).  On cadence weeks the full detect_anagenesis above
+        # already processed pending species, so this is effectively a no-op then.
+        if self.species_registry._anagenesis_pending:
+            self.species_registry.detect_anagenesis(all_alive, self.week, pending_only=True)
 
         new_speciations = self.species_registry.speciation_events[prev_speciation_count:]
         for ev in new_speciations:

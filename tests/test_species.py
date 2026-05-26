@@ -336,7 +336,7 @@ class TestCandidatePromotion:
         assert ev["parent_species"] == founder_name
         assert ev["creature_id"] == first.creature_id
         assert ev["week"] == 10
-        assert ev["event_type"] == "cladogenesis"
+        assert ev["event_type"] == "cladogenesis_newborn"
 
     def test_promoted_species_name_is_adjective_noun(self, registry_with_founder):
         """The promoted species gets a valid adjective-noun name."""
@@ -809,7 +809,7 @@ class TestSubclusterSplit:
 
         assert reg.species_count == 2
         ev = reg.speciation_events[-1]
-        assert ev["event_type"] == "cladogenesis"
+        assert ev["event_type"] == "cladogenesis_kmeans_subcluster"
         assert all(c.species != founder for c in far)
         assert all(c.species == founder for c in near)
 

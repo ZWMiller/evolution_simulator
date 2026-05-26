@@ -21,13 +21,25 @@ def _base_layout(**overrides) -> dict:
         plot_bgcolor="#0a0e0a",
         font=dict(color=TEXT, family=FONT, size=10),
         margin=dict(t=28, b=28, l=40, r=12),
-        xaxis=dict(color=DIMTEXT, gridcolor=BORDER, zeroline=False, title_text="week"),
+        xaxis=dict(
+            color=DIMTEXT, gridcolor=BORDER, zeroline=False,
+            title_text="week", rangemode="tozero",
+        ),
         yaxis=dict(color=DIMTEXT, gridcolor=BORDER, zeroline=False),
         showlegend=False,
         height=180,
     )
     base.update(overrides)
     return base
+
+
+def _nice_tick(max_val: float) -> float:
+    """Return a 'nice' round number ≈ max_val/6 for use as one tick interval."""
+    if max_val <= 0:
+        return 1.0
+    raw = max_val / 6
+    exp = 10 ** math.floor(math.log10(raw))
+    return min([exp, 2 * exp, 5 * exp], key=lambda v: abs(v - raw))
 
 
 def _hab_border(run: dict, hab_id: str | None) -> str:
@@ -291,10 +303,15 @@ def species_phylogeny(run: dict) -> go.Figure:
         counter[0] += 1  # vertical gap between independent trees
 
     # ── Edge traces ──────────────────────────────────────────────────────────
-    # Split edges by event type: cladogenesis (a true branch) is solid;
-    # anagenesis (in-place transformation, the ancestor often ending) is dashed.
-    clad_x: list = []
-    clad_y: list = []
+    # Three edge styles by event type:
+    #   cladogenesis_newborn      – solid green  (newborn fell outside all species)
+    #   cladogenesis_kmeans_subcluster – solid blue   (k-means detected bimodal split)
+    #   anagenesis                – dashed orange (in-place lineage transformation)
+    #   anything else / legacy    – solid green  (backward compat with old logs)
+    clad_newborn_x: list = []
+    clad_newborn_y: list = []
+    clad_kmeans_x: list = []
+    clad_kmeans_y: list = []
     ana_x: list = []
     ana_y: list = []
     for sp, data in lineage.items():
@@ -303,19 +320,29 @@ def species_phylogeny(run: dict) -> go.Figure:
             px, py = positions[parent]
             cx, cy = positions[sp]
             # L-shaped cladogram edge: horizontal from parent, then vertical to child
-            if data.get("event_type") == "anagenesis":
+            et = data.get("event_type", "")
+            if et == "anagenesis":
                 ana_x.extend([px, cx, cx, None])
                 ana_y.extend([py, py, cy, None])
+            elif et == "cladogenesis_kmeans_subcluster":
+                clad_kmeans_x.extend([px, cx, cx, None])
+                clad_kmeans_y.extend([py, py, cy, None])
             else:
-                clad_x.extend([px, cx, cx, None])
-                clad_y.extend([py, py, cy, None])
+                clad_newborn_x.extend([px, cx, cx, None])
+                clad_newborn_y.extend([py, py, cy, None])
 
     fig = go.Figure()
 
-    if clad_x:
+    if clad_newborn_x:
         fig.add_trace(go.Scatter(
-            x=clad_x, y=clad_y, mode="lines",
+            x=clad_newborn_x, y=clad_newborn_y, mode="lines",
             line=dict(color="#2a5a2a", width=1),
+            hoverinfo="skip", showlegend=False,
+        ))
+    if clad_kmeans_x:
+        fig.add_trace(go.Scatter(
+            x=clad_kmeans_x, y=clad_kmeans_y, mode="lines",
+            line=dict(color="#2a5a8a", width=1),
             hoverinfo="skip", showlegend=False,
         ))
     if ana_x:
@@ -343,12 +370,17 @@ def species_phylogeny(run: dict) -> go.Figure:
     ]
     node_customdata = [{"species": sp} for sp in node_sp]
 
-    # Colour by origin: founder vs cladogenesis (split) vs anagenesis (transform)
+    # Colour by origin: founder / newborn isolation / k-means split / anagenesis
     def _node_color(sp: str) -> str:
         d = lineage[sp]
         if d.get("parent") is None:
             return "#e4f4a0"
-        return "#e8a23d" if d.get("event_type") == "anagenesis" else "#56c456"
+        et = d.get("event_type", "")
+        if et == "anagenesis":
+            return "#e8a23d"
+        if et == "cladogenesis_kmeans_subcluster":
+            return "#4a90d9"
+        return "#56c456"  # newborn isolation, bootstrap, or legacy logs
 
     node_colors = [_node_color(sp) for sp in node_sp]
 
@@ -377,15 +409,22 @@ def species_phylogeny(run: dict) -> go.Figure:
     fig.add_trace(go.Scatter(
         x=[None], y=[None], mode="markers",
         marker=dict(color="#56c456", size=10),
-        name="cladogenesis (split)",
+        name="cladogenesis: newborn isolation",
+    ))
+    fig.add_trace(go.Scatter(
+        x=[None], y=[None], mode="markers",
+        marker=dict(color="#4a90d9", size=10),
+        name="cladogenesis: k-means subcluster split",
     ))
     fig.add_trace(go.Scatter(
         x=[None], y=[None], mode="markers",
         marker=dict(color="#e8a23d", size=10),
-        name="anagenesis (transform)",
+        name="anagenesis (in-place transformation)",
     ))
 
     all_weeks = run.get("all_weeks", [0])
+    max_w = max(all_weeks)
+    x_left = -_nice_tick(max_w)  # one tick of breathing room so legend doesn't overlap
     fig.update_layout(
         paper_bgcolor=BG,
         plot_bgcolor="#050805",
@@ -394,7 +433,7 @@ def species_phylogeny(run: dict) -> go.Figure:
         xaxis=dict(
             color=DIMTEXT, gridcolor=BORDER, zeroline=False,
             title_text="week of first appearance",
-            range=[-5, max(all_weeks) * 1.05],
+            range=[x_left, max_w * 1.05],
         ),
         yaxis=dict(visible=False),
         showlegend=True,
@@ -629,5 +668,154 @@ def family_tree_wheel(run: dict, creature_id: str) -> go.Figure:
         hovermode="closest",
         clickmode="event",
         height=600,
+    )
+    return fig
+
+
+# ── Trait comparison ──────────────────────────────────────────────────────────
+
+_TC_COLORS = [
+    "#56c456", "#4a90d9", "#e8a23d", "#e86a6a", "#a060d0",
+    "#60d0d0", "#d0a060", "#d06090", "#90d060", "#6090d0",
+    "#d09060", "#60d0a0", "#d0c040", "#c060c0", "#40c0d0",
+    "#d06060", "#70b870", "#b07030", "#7070d0", "#d07070",
+]
+_TC_DASHES = ["solid", "dash", "dot", "dashdot", "longdash", "longdashdot"]
+
+
+def _tc_metric_series(run: dict, species: str, metric: str):
+    """Return (weeks, vals) for a species/metric pair from the run data."""
+    if metric in ("mean_food_prob", "mean_water_prob"):
+        by_week: dict[int, list] = {}
+        for sp_data in run["species_per_hab"].values():
+            for row in sp_data.get(species, []):
+                w = row["week"]
+                v = row.get(metric)
+                n = row.get("count", 0)
+                if v is not None and n > 0:
+                    by_week.setdefault(w, [0.0, 0])
+                    by_week[w][0] += v * n
+                    by_week[w][1] += n
+        weeks = sorted(by_week)
+        vals = [by_week[w][0] / by_week[w][1] if by_week[w][1] > 0 else None
+                for w in weeks]
+        return weeks, vals
+    rows = run["species_global"].get(species, [])
+    weeks = [r["week"] for r in rows]
+    vals  = [r.get(metric) for r in rows]
+    return weeks, vals
+
+
+def _tc_anagenesis_descendants(run: dict, species: str) -> list[str]:
+    """All anagenesis-type children/grandchildren of species (BFS)."""
+    lineage = run.get("species_lineage", {})
+    result, queue = [], [species]
+    while queue:
+        sp = queue.pop(0)
+        for child in lineage.get(sp, {}).get("children", []):
+            if lineage.get(child, {}).get("event_type") == "anagenesis":
+                result.append(child)
+                queue.append(child)
+    return result
+
+
+def trait_comparison(
+    run: dict,
+    selected_species: list[str],
+    selected_metrics: list[str],
+    include_anagenesis: bool,
+) -> go.Figure:
+    """
+    Multi-species multi-metric line chart for divergence analysis.
+
+    Color encodes species identity; line dash encodes metric (when > 1 metric).
+    Anagenesis descendants (if requested) use the same color as their base
+    species but at reduced opacity, starting from their appearance week.
+    """
+    if not selected_species or not selected_metrics:
+        return _empty_fig("select at least one species and one metric above", height=500)
+
+    max_w = max(run["all_weeks"])
+
+    # Build the full list of (species, base_species) pairs to plot.
+    plot_pairs: list[tuple[str, str]] = []
+    for sp in selected_species:
+        plot_pairs.append((sp, sp))
+        if include_anagenesis:
+            for desc in _tc_anagenesis_descendants(run, sp):
+                plot_pairs.append((desc, sp))
+
+    base_color = {
+        sp: _TC_COLORS[i % len(_TC_COLORS)]
+        for i, sp in enumerate(selected_species)
+    }
+    multi_metric = len(selected_metrics) > 1
+
+    fig = go.Figure()
+
+    for sp, base_sp in plot_pairs:
+        color   = base_color[base_sp]
+        is_desc = sp != base_sp
+        opacity = 0.55 if is_desc else 1.0
+        width   = 1.2 if is_desc else 1.8
+
+        for m_idx, metric in enumerate(selected_metrics):
+            weeks, vals = _tc_metric_series(run, sp, metric)
+            if not weeks:
+                continue
+
+            metric_label = metric.replace("_", " ")
+            if multi_metric:
+                trace_name = f"{'↳ ' if is_desc else ''}{sp} — {metric_label}"
+            else:
+                trace_name = f"{'↳ ' if is_desc else ''}{sp}"
+
+            fig.add_trace(go.Scatter(
+                x=weeks,
+                y=vals,
+                mode="lines",
+                name=trace_name,
+                line=dict(
+                    color=color,
+                    width=width,
+                    dash=_TC_DASHES[m_idx % len(_TC_DASHES)],
+                ),
+                opacity=opacity,
+                hovertemplate=(
+                    f"<b>{sp}</b><br>"
+                    f"metric: {metric_label}<br>"
+                    "week: %{x}<br>"
+                    "value: %{y:.4f}<extra></extra>"
+                ),
+            ))
+
+    fig.update_layout(
+        paper_bgcolor=BG,
+        plot_bgcolor="#050805",
+        font=dict(color=TEXT, family=FONT, size=10),
+        margin=dict(t=20, b=48, l=60, r=20),
+        xaxis=dict(
+            color=DIMTEXT, gridcolor=BORDER, zeroline=False,
+            title_text="week",
+            range=[0, max_w * 1.02],
+        ),
+        yaxis=dict(
+            color=DIMTEXT, gridcolor=BORDER, zeroline=False,
+            title_text=selected_metrics[0].replace("_", " ") if not multi_metric else "value",
+        ),
+        showlegend=True,
+        legend=dict(
+            font=dict(size=10, family=FONT),
+            bgcolor="rgba(0,0,0,0.4)",
+            bordercolor=BORDER,
+            borderwidth=1,
+        ),
+        hovermode="x unified",
+        height=500,
+        title=dict(
+            text="TRAIT COMPARISON",
+            font=dict(color=DIMTEXT, size=13, family=FONT),
+            x=0.01,
+        ),
     )
     return fig

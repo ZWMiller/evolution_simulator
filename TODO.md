@@ -128,7 +128,85 @@ below is lower-priority given that conclusion.
    lock contention on shared state (offspring list, species registry) makes this
    impractical.
 
-Branch: `feature/multiprocessing-core-loops`
+Branch: `feature/multiprocessing-core-loops` — merged to main (PR #2)
+
+## Experiments
+
+### Fecundity vs. density-driven predation rate (proposed)
+
+**Hypothesis:** There is an optimal fecundity value for any given density-driven predation rate, and isolated populations under different predation pressures will independently converge on different fecundity values — visible as a consistent, density-correlated split across lineages despite identical habitat selection geometry.
+
+**Design:** Five isolated, identical Forest habitats with the same founding gene pool (`mirror_founding_population = true`), but each habitat assigned a distinct `POPULATION_SUPPORT` value that spans a wide range (e.g. 100, 250, 500, 1000, 2000). Lower support capacity → higher density term → higher effective predation rate at any given population size.
+
+**What to measure:**
+- Mean fecundity per habitat at weeks 10k, 20k, 30k
+- Mean `base_predation_rate` per habitat (the heritable component, which shares loci with fecundity)
+- Population equilibrium size relative to support capacity in each habitat
+- Whether the fecundity ordering matches the predation-rate ordering across habitats
+
+**Why this is interesting:** The parallel divergence and identical-habitat control runs ([emergent natural selection report](reports/general_findings/emergent_natural_selection.md)) established that metabolism and water efficiency are under direct selection from the food/water miss-penalty mechanics. Fecundity is also mechanically active (litter size = Poisson(fecundity)) but the selection direction is less clean because high-fecundity genotypes also carry higher intrinsic predation vulnerability via shared loci. This experiment isolates the predation axis: if different support capacities produce consistently different equilibrium fecundity values across independent replicates, that is direct evidence that the density-predation channel is resolving the r/K tradeoff in a population-density-dependent way. Controlling the habitat selection vector (identical Forest for all five) removes the metabolism/water-efficiency confound.
+
+**Implementation note:** `POPULATION_SUPPORT` is currently a class attribute on `Habitat` subtypes, settable via `population_support` in the `[[habitats.instances]]` TOML block. Verify this override works before running.
+
+---
+
+### Harsh vs. permissive environment selection pressure (proposed)
+
+**Scientific question:** Does the compound harshness of a Desert-type habitat (lower food/water discovery probability AND lower energy rewards per meal AND higher hydration costs) create a different overall selection pressure and evolutionary response than a permissive Forest — or does the dominant driver reduce to the alignment geometry alone?
+
+**Why this is hard to run naively:** Desert went fully extinct in the parallel divergence run because random founding genes are too misaligned to the Desert CENTER vector to survive long enough for selection to act. We cannot directly compare Forest vs. Desert outcomes without first solving the shared-survivor founding problem.
+
+**Why this is worth solving:** Harshness in this simulation has two separable axes that are currently conflated in every real habitat type:
+
+1. **Selection direction** — how far the habitat CENTER is from a given founding genome in gene space. This determines food/water discovery probability via `cos θ`. Any two habitats with different TYPE_SEEDs differ on this axis.
+2. **Energy economics** — the per-meal reward and per-miss penalty. Desert specifically overrides: `FOOD_ENERGY_GAIN = 0.25` (vs. Forest's 0.30), `FOOD_ENERGY_COST = 0.21` (vs. 0.15), `WATER_HYDRATION_COST = 0.44` (vs. 0.25). These make Desert punishing even for a well-aligned creature, because each missed meal costs more and each found meal recovers less.
+
+The experiment should isolate these two axes. A creature adapted to Forest has good `cos θ` in Forest but poor `cos θ` in Desert. The question is whether the energy economics layer on top of that geometry creates a *qualitatively different* selection response — not just faster death, but different trait equilibria in survivors.
+
+**Prerequisite implementation — founding population checkpoint loading:**
+
+The cleanest approach requires a new config option: `founding_genes_checkpoint = "simulation_logs/RUNID/week_NNNNN.json"`. When set, the runner loads that week's surviving creature gene vectors and uses them as founding stock (with fresh per-creature noise), bypassing the random generation step. `mirror_founding_population` and `founding_habitat_bias` are ignored when a checkpoint is specified.
+
+This enables:
+- Run Forest-only for 10,000–15,000 weeks to get a well-adapted gene pool
+- Use that checkpoint to seed Forest + Desert simultaneously
+- Forest-adapted genes have decent `cos θ` in Forest; their `cos θ` in Desert depends on how similar Desert.CENTER is to Forest.CENTER. Even if initial survival rate in Desert is low, *some* creatures will survive by chance variation, seeding adaptation.
+
+**Experimental design (once checkpoint loading exists):**
+
+*Arm 1 — Geometry-only harshness:*
+- Forest habitat (permissive, standard energy params)
+- A synthetic "HarshForest" variant: same TYPE_SEED as Forest (identical CENTER), but Desert's energy economics (`FOOD_ENERGY_GAIN=0.25`, `FOOD_ENERGY_COST=0.21`, `WATER_HYDRATION_COST=0.44`)
+- Same founding checkpoint seeded from a Forest run
+- What differs: only the per-meal economics, not the selection direction
+- Measure: do the two lineages evolve to the same gene-space direction but different metabolic/water-efficiency equilibria?
+
+*Arm 2 — Direction-only harshness:*
+- Forest habitat (permissive)
+- Desert habitat with Forest's energy economics (keep Desert TYPE_SEED, override energy params to Forest defaults)
+- Same founding checkpoint
+- What differs: only the selection direction geometry, not the per-meal economics
+- Measure: do the two lineages diverge in the same way as in the parallel divergence run, or does removing the energy-economics penalty change the trajectory?
+
+*Arm 3 — Full Desert (compound harshness):*
+- Forest habitat (permissive)
+- Standard Desert (different CENTER AND harsh energy economics)
+- Same founding checkpoint
+- Measure: is the combined effect additive, synergistic, or redundant with the geometry effect alone?
+
+**What to measure across arms:**
+- Survival rate through first 1,000 weeks (early-mortality signature of harshness)
+- Mean metabolism at weeks 5k, 15k, 30k — hypothesis: energy-economics harshness selects for lower metabolism more strongly than geometry alone
+- Mean water efficiency — hypothesis: higher WATER_HYDRATION_COST creates stronger directional selection toward higher water efficiency
+- Food and water discovery probability trajectory — does the harsh arm adapt faster (stronger selection) or slower (higher early mortality thins the gene pool)?
+- Final population size relative to POPULATION_SUPPORT
+
+**Implementation notes:**
+- `FOOD_ENERGY_GAIN`, `FOOD_ENERGY_COST`, `WATER_HYDRATION_GAIN`, `WATER_HYDRATION_COST` are currently class-level constants with no per-instance TOML override path. Adding TOML overrides for these (alongside the existing `population_support` override) is needed for Arms 1 and 2.
+- Arm 3 can be run immediately once checkpoint loading exists, using standard Desert + Forest types.
+- Per-habitat energy overrides in TOML are independently useful for the fecundity/predation experiment above and for future biome design work.
+
+---
 
 ## Backlog
 
