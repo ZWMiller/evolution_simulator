@@ -61,11 +61,25 @@ Within a single week, `Habitat.simulate_week()` runs in this fixed order:
 4. Collect litters from females that reached gestation term
 5. Remove dead creatures
 6. Collect migration candidates (but do **not** apply migrations yet)
-7. Pair males and females for mating
+7. Pair males and females for mating (dispatch to the configured `mating_strategy`)
 8. Add newborns and assign species via `SpeciesRegistry`
 9. Attempt spontaneous route isolation
 
 **Critical invariant**: migrations are returned as events, not applied inside `Habitat.simulate_week()`. `SimulationRunner.step()` processes all habitats first, then moves migrants — this prevents a creature from being simulated twice in the same week.
+
+### Mating Strategies (`habitat.py`)
+
+The pairing algorithm is controlled by `mating_strategy` in `[simulation]` config and dispatched inside `simulate_week`. All four strategies call `_attempt_mating(male, female)` for each pair, which runs `is_compatible()` and, if compatible, `reproduce()`. The strategy only determines *who gets paired with whom* — conception probability and litter size are always downstream of the pairing.
+
+**`zip` (default/legacy):** Shuffles all viable males and all viable females habitat-wide, then zips them 1:1. A cross-species pairing that fails `is_compatible()` wastes both individuals' mating opportunity that week, creating a severe **minority-species Allee effect**: a minority of 5 pairs competing against a majority of 50 expects only ~9% of pairings to land within-species. Kept as the default for backwards compatibility with old experiments.
+
+**`species_priority`:** Groups males and females by `creature.species`, pairs each species' own pool first (shuffled within-species), then sends surplus unpaired individuals to a shared cross-species spillover pass. Eliminates the Allee effect entirely: each species gets mating proportional to its own sex ratio regardless of relative abundance. Hybridisation still occurs for leftover surplus individuals. O(N).
+
+**`weighted_matrix`:** Builds the full M×F compatibility score matrix in one vectorized numpy pass (`(M,245) @ (245,F)` + norm division). Iterates females in random order; each female samples a male with probability proportional to `max(0, score − threshold)^sharpness`, where `threshold = COMPATIBILITY_FLOOR + 0.15·female.selectivity` and `sharpness = 1 + MATING_SHARPNESS_K · mean(male.selectivity, female.selectivity)` (default K=3, so sharpness ∈ [1,4]). Each claimed male is removed from the pool. Low selectivity → nearly uniform above the floor (liberal hybridisation); high selectivity → sharply peaked at the best available mate. Makes hybridisation propensity an **evolved trait** driven by `selectivity`. O(N²) but fast in practice under the `POPULATION_SUPPORT` cap.
+
+**`stable_matching`:** Runs **Gale-Shapley deferred acceptance** (male-proposing) on the same M×F matrix. Each male proposes down his ranked preference list; each female tentatively holds her best offer and releases prior partners if a better proposer arrives. Terminates when no free male has remaining candidates. Produces a **stable matching** — no unmatched (male, female) pair both prefer each other over their current partners. Hybridisation occurs only when a cross-species individual genuinely ranks above all same-species alternatives for both parties. See `_gale_shapley()` in `habitat.py` for the full algorithm description and documentation of all six baked-in assumptions (proposing direction, bilateral threshold pre-filtering, tie-breaking noise, etc.). O(N²).
+
+**Key note on cross-species immunity:** Under `weighted_matrix` and `stable_matching`, a majority female cannot accidentally claim a minority male. Cross-species cosine scores in 245-dim space are near 0 (std ≈ 1/√245 ≈ 0.064), well below the 0.70 `COMPATIBILITY_FLOOR`, so their sampling weights are zero. Minority males are protected regardless of iteration order.
 
 ### Species Detection (`species.py`)
 
