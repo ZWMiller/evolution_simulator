@@ -321,10 +321,12 @@ class SimulationRunner:
         # the correct detected_week on any new candidates.
         self.species_registry.current_week = self.week
 
+        mating_strategy = sim_cfg.get("mating_strategy", "zip")
         for hab_id, hab in self.habitats.items():
             result = hab.simulate_week(
                 species_registry=self.species_registry,
                 isolation_probability=iso_prob,
+                mating_strategy=mating_strategy,
             )
             habitat_results[hab_id] = result
             for creature, dest_hab in result["migrations"]:

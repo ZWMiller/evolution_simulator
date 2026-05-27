@@ -123,18 +123,58 @@ def build(run: dict) -> html.Div:
 
     # ── Phylogeny canvas ──────────────────────────────────────────────────────
     phylogeny_canvas = html.Div(
-        dcc.Graph(
-            id="phylogeny-graph",
-            figure={},
-            config={"displayModeBar": "hover", "scrollZoom": True},
-            responsive=True,
-            style={"height": "100%"},
-            clear_on_unhover=True,
-        ),
+        [
+            # Control bar
+            html.Div(
+                [
+                    html.Span("min weeks survived:", style=dict(
+                        color=DIMTEXT, fontSize="11px", fontFamily=FONT,
+                        alignSelf="center", marginRight="8px", whiteSpace="nowrap",
+                    )),
+                    dcc.Input(
+                        id="phylo-min-weeks",
+                        type="number",
+                        min=0,
+                        step=1,
+                        value=0,
+                        debounce=True,
+                        placeholder="0",
+                        style=dict(
+                            width="90px", backgroundColor="#0b0f0b",
+                            color=TEXT, fontFamily=FONT, fontSize="12px",
+                            border=f"1px solid {BORDER}", borderRadius="2px",
+                            padding="2px 6px",
+                        ),
+                    ),
+                    html.Span(
+                        "  (filters out species with a shorter lifespan)",
+                        style=dict(
+                            color=DIMTEXT, fontSize="10px", fontFamily=FONT,
+                            alignSelf="center", marginLeft="8px",
+                        ),
+                    ),
+                ],
+                style=dict(
+                    display="flex", alignItems="center",
+                    padding="8px 16px", height="46px",
+                    backgroundColor=BG, borderBottom=f"1px solid {BORDER}",
+                    boxSizing="border-box", flexShrink="0",
+                ),
+            ),
+            dcc.Graph(
+                id="phylogeny-graph",
+                figure={},
+                config={"displayModeBar": "hover", "scrollZoom": True},
+                responsive=True,
+                style={"flex": "1", "minHeight": "0"},
+                clear_on_unhover=True,
+            ),
+        ],
         id="phylogeny-canvas",
         style=dict(
             position="absolute", inset="0",
             display="none", overflow="hidden",
+            flexDirection="column",
         ),
     )
 

@@ -1,0 +1,98 @@
+# ring_stable_30k.toml
+#
+# Five ecologically distinct habitats connected in a ring, run for 30 000 weeks
+# under the stable_matching mating strategy.
+#
+# Ring topology (clockwise):
+#   Desert → Savanna → Forest → Tundra → Alpine → Desert
+#
+# Each habitat is seeded independently (no mirror mode) with 3 founding
+# genomes drawn from a habitat-biased random genome, so populations start
+# partially adapted to their local environment.  founding_habitat_bias=0.55
+# raises initial food/water probability from ~50% to ~65%, preventing the
+# early-extinction bottleneck without pre-adapting creatures too strongly.
+#
+# Mating strategy: stable_matching (Gale-Shapley deferred acceptance).
+# See habitat.py:_gale_shapley for the full algorithm description.  Compared
+# to the legacy zip strategy, stable_matching eliminates the minority-species
+# Allee effect: no compatible pair is left unmatched because one of them was
+# consumed by a wasted cross-species encounter.
+#
+# Isolation probability is deliberately low (1e-5 per link per week) so that
+# 1–2 migration routes close spontaneously across the full 30 000-week run.
+# Calculation: E[closures] = p × 5 links × 30 000 weeks = 1.5.  When a route
+# closes, the two flanking habitats drift independently; if their populations
+# have already diverged far enough this can initiate allopatric speciation.
+#
+# 30 000 weeks ≈ 750–1 200 generations (generation length ~25–40 weeks).
+# Logging every 50 weeks → 600 stat snapshots; per-event logs disabled for
+# speed.  Respeciation cadence matches the logging cadence (every 50 weeks).
+
+[simulation]
+weeks                       = 30000
+seed                        = 17
+output_dir                  = "simulation_logs"
+
+mating_strategy             = "stable_matching"
+
+initial_species_per_habitat = 3
+creatures_per_species       = 60     # 30 female + 30 male per species per habitat
+initial_genome_noise        = 0.05
+founding_habitat_bias       = 0.55   # partial alignment to local habitat vector
+
+# 1e-5 per link per week → E[closures] ≈ 1.5 over the full run (5 links × 30 000 wk)
+isolation_probability       = 0.00001
+
+stats_every                 = 50     # one snapshot per 50 weeks (~600 total)
+events_every                = 0      # disable per-event logs for speed
+respeciate_every            = 50     # refresh centroids + run detectors every 50 weeks
+
+[species]
+compatibility_threshold     = 0.65
+min_species_population      = 10
+min_species_weeks           = 60     # ~2 generations before a candidate is confirmed
+split_max_k                 = 5
+split_isolation_threshold   = 0.70
+anagenesis_threshold        = 0.93
+anagenesis_weeks            = 60
+
+[habitats]
+
+# Ring connections (clockwise); spontaneous isolation may sever any of these
+connections = [
+    ["desert_1",  "savanna_1"],
+    ["savanna_1", "forest_1"],
+    ["forest_1",  "tundra_1"],
+    ["tundra_1",  "alpine_1"],
+    ["alpine_1",  "desert_1"],
+]
+
+[[habitats.instances]]
+id   = "desert_1"
+type = "Desert"
+seed = 1
+name = "Northern Desert"
+
+[[habitats.instances]]
+id   = "savanna_1"
+type = "Savanna"
+seed = 2
+name = "Eastern Savanna"
+
+[[habitats.instances]]
+id   = "forest_1"
+type = "Forest"
+seed = 3
+name = "Southern Forest"
+
+[[habitats.instances]]
+id   = "tundra_1"
+type = "Tundra"
+seed = 4
+name = "Western Tundra"
+
+[[habitats.instances]]
+id   = "alpine_1"
+type = "Alpine"
+seed = 5
+name = "Central Alpine"

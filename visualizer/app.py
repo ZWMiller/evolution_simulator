@@ -256,11 +256,12 @@ def make_app(run: dict) -> dash.Dash:
     @app.callback(
         Output("phylogeny-graph", "figure"),
         Input("view-mode", "data"),
+        Input("phylo-min-weeks", "value"),
     )
-    def render_phylogeny(mode: str):
+    def render_phylogeny(mode: str, min_weeks):
         if mode != "phylogeny":
             return no_update
-        return figs.species_phylogeny(run)
+        return figs.species_phylogeny(run, min_weeks=int(min_weeks or 0))
 
     # ── Phylogeny click → panel state (open species panel) ────────────────────
     @app.callback(

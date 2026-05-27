@@ -154,7 +154,7 @@ per-locus Mendelian inheritance + mutation), `simulate_week()`. Module helpers `
 | `water_efficiency` | [0, 1] | Reduces hydration cost when water is missed |
 | `migration_likelihood` | [0, 1] | × `WEEKLY_MIGRATION_BASE` (0.01) |
 | `base_predation_rate` | 0–0.005 | Intrinsic weekly predation vulnerability |
-| `selectivity` | [0, 1] | Raises mate-compatibility threshold above the floor |
+| `selectivity` | [0, 1] | Raises mate-compatibility floor; also controls mating sharpness in `weighted_matrix`/`stable_matching` |
 | `mutation_rate` | 0.001–0.05 | Per-locus mutation probability (heritable) |
 | `compatibility_genes` | 245 loci | Cosine basis for mating **and** speciation |
 
@@ -163,13 +163,24 @@ tolerances, `intelligence`, etc.) that make up the 32-trait `PHENOTYPE_TRAITS` v
 
 ### `Habitat` — `evolution_simulator/habitat.py`
 
-A region with a 500-dim environment vector. `simulate_week()` runs, in order: batch food/water
-likelihoods → energy/hydration update and starvation/dehydration/old-age deaths → aging &
-pregnancy → litter collection → density-dependent predation → remove dead → collect migrations
-→ pair males/females for mating → add newborns (assign species) → spontaneous route isolation.
-Migrations are **returned, not applied**, so `SimulationRunner` can process all habitats before
-moving any creature (no double-simulation). `compute_stats()` reports per-species trait means and
-adaptation (`mean_food_prob` / `mean_water_prob`).
+A region with a 500-dim environment vector. `simulate_week(mating_strategy=...)` runs, in order:
+batch food/water likelihoods → energy/hydration update and starvation/dehydration/old-age deaths
+→ aging & pregnancy → litter collection → density-dependent predation → remove dead → collect
+migrations → pair males/females for mating → add newborns (assign species) → spontaneous route
+isolation. Migrations are **returned, not applied**, so `SimulationRunner` can process all habitats
+before moving any creature (no double-simulation). `compute_stats()` reports per-species trait means
+and adaptation (`mean_food_prob` / `mean_water_prob`).
+
+**Mating strategies** (set via `mating_strategy` in `[simulation]`):
+
+| Strategy | Behaviour | Complexity |
+|---|---|---|
+| `zip` | Shuffle all males + females, zip 1:1. Legacy default; penalises minority species with wasted cross-species encounters (Allee effect). | O(N) |
+| `species_priority` | Pair within-species first; surplus individuals go to a cross-species spillover pool, preserving some hybridisation. | O(N) |
+| `weighted_matrix` | Vectorised M×F compatibility-score matrix; each female samples a male via power-law weights `max(0, score − floor)^sharpness`. Sharpness = `1 + 3·mean(selectivity)` — low-selectivity creatures hybridise liberally; high-selectivity creatures strongly prefer same-species mates. | O(N²) |
+| `stable_matching` | Gale-Shapley deferred acceptance on the score matrix — produces a stable matching (no blocking pair exists). Hybridisation only occurs when a cross-species partner is genuinely preferred over available same-species options. See `_gale_shapley()` docstring for the six documented assumptions. | O(N²) |
+
+In `weighted_matrix` and `stable_matching`, cross-species cosine scores in 245-dimensional space average near zero (std ≈ 0.064, far below the 0.70 mating floor), so cross-species weights are effectively zero unless the populations have converged or are hybridising intentionally.
 
 ### Habitat Types — `evolution_simulator/habitats/types.py`
 
@@ -240,6 +251,7 @@ isolation_probability       = 0.001     # per-link weekly route severance
 stats_every                 = 10        # weeks between statistics snapshots
 events_every                = 0         # 0 = no per-event logging
 respeciate_every            = 10        # weeks between living-centroid refresh + detectors
+mating_strategy             = "zip"     # zip | species_priority | weighted_matrix | stable_matching
 
 [species]
 compatibility_threshold   = 0.65        # compat-subset cosine vs living centroid (≈ below 0.70 mating floor)
@@ -325,7 +337,8 @@ evolution_simulator/
 poetry run pytest
 ```
 
-240 tests covering gene/trait computation, Mendelian reproduction, resource geometry, predation,
-migration, and the full speciation stack: compatibility-centroid membership, living-centroid drift
-handling, spherical-k-means sub-cluster splits, and phenotype-drift anagenesis with its persistence
-gate.
+265 tests covering gene/trait computation, Mendelian reproduction, resource geometry, predation,
+migration, the full speciation stack (compatibility-centroid membership, living-centroid drift
+handling, spherical-k-means sub-cluster splits, phenotype-drift anagenesis with persistence gate),
+and all four mating strategies (zip, species_priority, weighted_matrix, stable_matching) including
+the Gale-Shapley stability guarantee and minority-species protection.
