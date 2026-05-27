@@ -173,6 +173,22 @@ def load_run(log_dir: Path) -> dict:
         for sp, rows in species_global.items()
     }
 
+    # Lifespan per species: weeks from first appearance to last logged presence.
+    # Species still alive at run end get credit through weeks_simulated.
+    weeks_simulated = summary["weeks_simulated"]
+    final_dist = summary.get("final_species_distribution", {})
+    final_living = {sp for hab_dist in final_dist.values() for sp in hab_dist}
+    species_lifespan: dict[str, int] = {}
+    for sp, data in species_lineage.items():
+        birth = data.get("week", 0)
+        if sp in final_living:
+            species_lifespan[sp] = weeks_simulated - birth
+        elif sp in species_global:
+            last_seen = max(r["week"] for r in species_global[sp] if r["count"] > 0)
+            species_lifespan[sp] = last_seen - birth
+        else:
+            species_lifespan[sp] = 0
+
     node_positions = _spring_layout(hab_ids, connections)
 
     return {
@@ -200,6 +216,7 @@ def load_run(log_dir: Path) -> dict:
         "creature_children":       creature_children,
         "species_lineage":              species_lineage,
         "species_peak_population":      species_peak_population,
+        "species_lifespan":             species_lifespan,
         "failed_speciation_attempts":   failed_speciation_attempts,
         "node_positions":               node_positions,
         "weeks_simulated":              summary["weeks_simulated"],

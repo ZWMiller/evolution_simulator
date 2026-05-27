@@ -268,13 +268,43 @@ def edge_migration(run: dict, src: str, tgt: str) -> go.Figure:
 
 # ── Main-canvas views ─────────────────────────────────────────────────────────
 
-def species_phylogeny(run: dict) -> go.Figure:
+def species_phylogeny(run: dict, min_weeks: int = 0) -> go.Figure:
     """
     Speciation tree: nodes = species, edges = parent→child speciation.
     X-axis = week of first appearance; Y-axis = branching layout position.
+
+    min_weeks: hide any species whose lifespan (last seen - birth week) is
+    shorter than this value. Children of hidden nodes are reparented to their
+    nearest surviving ancestor so the visible tree stays connected.
     """
     lineage = run.get("species_lineage", {})
     peak_pop = run.get("species_peak_population", {})
+
+    # ── Optional lifespan filter ─────────────────────────────────────────────
+    if min_weeks > 0:
+        lifespan = run.get("species_lifespan", {})
+        kept = {sp for sp in lineage if lifespan.get(sp, 0) >= min_weeks}
+
+        # Reparent: find nearest surviving ancestor for each filtered-out node
+        def _surviving_ancestor(sp: str) -> str | None:
+            parent = lineage[sp].get("parent")
+            while parent is not None:
+                if parent in kept:
+                    return parent
+                parent = lineage[parent].get("parent")
+            return None
+
+        filtered_lineage: dict[str, dict] = {}
+        for sp in kept:
+            entry = dict(lineage[sp])
+            orig_parent = entry.get("parent")
+            if orig_parent is not None and orig_parent not in kept:
+                entry = dict(entry)
+                entry["parent"] = _surviving_ancestor(sp)
+            # Rebuild children list to only include kept species
+            entry["children"] = [c for c in entry.get("children", []) if c in kept]
+            filtered_lineage[sp] = entry
+        lineage = filtered_lineage
 
     if not lineage:
         return _empty_fig("no speciation data", height=600)

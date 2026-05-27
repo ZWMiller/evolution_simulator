@@ -6,6 +6,25 @@ Cross-machine task tracking for active development items.
 
 ## Immediate / Next Session
 
+### Remove newborn cladogenesis; rely solely on k-means for speciation
+
+See `PLANNING_TEMP.md` for full design. Summary:
+
+- Remove the per-newborn candidate-creation path in `species.py`. Newborns that
+  fall below `compatibility_threshold` for all species get assigned to the
+  nearest-centroid species (Option A) instead of starting a candidate cluster.
+- K-means subcluster splits remain the sole speciation mechanism. Two-stage
+  candidate gate retained for k-means-sourced candidates.
+- Raise `split_isolation_threshold` default from 0.70 → 0.75 in `simulation.toml`
+  and long-run configs.
+- Update/remove tests that exercise the newborn cladogenesis path.
+- Motivation: 1,782 newborn events vs 237 k-means in the 30k run — mostly noise.
+  Also blocking anagenesis: constant newborn peeling resets the phenotype-drift
+  clock so anagenesis never fires. Expect anagenesis to become meaningful after
+  this change.
+
+---
+
 ### Run visualizer on parallel divergence experiment
 
 Log dir: `simulation_logs/2026-05-25_16-09-11/`
