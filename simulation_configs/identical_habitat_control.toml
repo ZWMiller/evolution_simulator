@@ -23,7 +23,7 @@
 #
 # 30 000 weeks ≈ 750–1 200 generations (generation ~25–40 weeks).
 # Logging every 50 weeks → 600 stat snapshots; events disabled for speed.
-# Respeciation checks every 50 weeks (matches log cadence).
+# Respeciation checks every 10 weeks (more frequent than log cadence).
 
 [simulation]
 weeks                       = 30000
@@ -40,14 +40,14 @@ isolation_probability       = 0.0    # no connections → no migration, no route
 
 stats_every                 = 50     # one snapshot per 50 weeks (~600 total)
 events_every                = 0      # disable per-event logs for speed
-respeciate_every            = 50     # refresh centroids + run detectors every 50 weeks
+respeciate_every            = 10     # refresh centroids + run detectors every 10 weeks
 
 [species]
 compatibility_threshold     = 0.65
 min_species_population      = 10
 min_species_weeks           = 60     # ~2 generations
 split_max_k                 = 5
-split_isolation_threshold   = 0.70
+split_isolation_threshold   = 0.75
 anagenesis_threshold        = 0.93
 anagenesis_weeks            = 60
 

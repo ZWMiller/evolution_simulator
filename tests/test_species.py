@@ -191,46 +191,23 @@ class TestAssignSpeciesSame:
 
 
 # ---------------------------------------------------------------------------
-# assign_species — candidate stage (two-stage speciation)
+# assign_species — isolation and bootstrap behaviour
 # ---------------------------------------------------------------------------
 
 class TestAssignSpeciesNew:
-    def test_diverged_genome_creates_candidate_not_immediate_species(self, registry_with_founder):
-        """A diverged newborn should enter the candidate stage, not create a confirmed species."""
+    def test_diverged_newborn_joins_nearest_species_no_candidate(self, registry_with_founder):
+        """A newborn with diverged genes is assigned to the nearest living species.
+        No candidate is created — population-level splits are detected by k-means."""
         reg, _, founder_name = registry_with_founder
         diverged = make_creature(far_genes(seed=42), parent_species=founder_name)
         returned_name = reg.assign_species(diverged)
 
-        # No confirmed species added yet
         assert reg.species_count == 1
         assert len(reg.speciation_events) == 0
-        # One pending candidate
-        assert len(reg._candidates) == 1
-        # Creature keeps the parent species label throughout the candidate period
+        assert len(reg._candidates) == 0
+        # Assigned to the only living species (the founder)
         assert returned_name == founder_name
         assert diverged.species == founder_name
-
-    def test_similar_diverged_creatures_join_same_candidate(self, registry_with_founder):
-        """Multiple creatures near the same diverged genome should all join one candidate."""
-        reg, _, founder_name = registry_with_founder
-        diverged_base = far_genes(seed=42)
-        for i in range(3):
-            c = make_creature(near_genes(diverged_base, noise=0.001, seed=i), parent_species=founder_name)
-            reg.assign_species(c)
-
-        assert len(reg._candidates) == 1
-        cand = next(iter(reg._candidates.values()))
-        assert len(cand["members"]) == 3
-
-    def test_very_different_diverged_creatures_create_separate_candidates(self, registry_with_founder):
-        """Two truly different diverged genomes should create two separate candidates."""
-        reg, _, founder_name = registry_with_founder
-        c1 = make_creature(far_genes(seed=42), parent_species=founder_name)
-        c2 = make_creature(far_genes(seed=99), parent_species=founder_name)
-        reg.assign_species(c1)
-        reg.assign_species(c2)
-
-        assert len(reg._candidates) == 2
 
     def test_no_registry_entries_triggers_immediate_species(self):
         """Bootstrap case: first-ever creature gets a confirmed species immediately."""
@@ -246,12 +223,38 @@ class TestAssignSpeciesNew:
 # Candidate promotion
 # ---------------------------------------------------------------------------
 
+def _inject_candidate(reg, genes, parent_species, detected_week=0):
+    """
+    Inject a k-means-style candidate directly into the registry.
+
+    Simulates the result of detect_subcluster_splits() seeding a candidate
+    without going through assign_species().  Returns (cid, seed_creature).
+    """
+    compat = reg._compat(genes)
+    cid = f"cand_{reg._next_candidate_id}"
+    reg._next_candidate_id += 1
+    seed = make_creature(genes, parent_species=parent_species)
+    reg._candidates[cid] = {
+        "genes": genes.copy(),
+        "compat": compat.copy(),
+        "parent_species": parent_species,
+        "detected_week": detected_week,
+        "members": {seed.creature_id},
+        "first_creature_id": seed.creature_id,
+        "peak_members": 1,
+        "origin": "kmeans_subcluster",
+    }
+    return cid, seed
+
+
 def _add_members_to_candidate(reg, cid, n_extra, base_genes):
     """Add n_extra creatures as members of an existing candidate (for test setup)."""
     members = []
     for i in range(n_extra):
         c = make_creature(near_genes(base_genes, noise=0.001, seed=100 + i))
-        reg._candidates[cid]["members"].add(c.creature_id)
+        cand = reg._candidates[cid]
+        cand["members"].add(c.creature_id)
+        cand["peak_members"] = max(cand["peak_members"], len(cand["members"]))
         members.append(c)
     return members
 
@@ -260,12 +263,9 @@ class TestCandidatePromotion:
     def test_candidate_not_promoted_with_too_few_members(self, registry_with_founder):
         """A candidate with fewer than min_species_population members is not promoted."""
         reg, _, founder_name = registry_with_founder
-        diverged_genes = far_genes(seed=42)
-        diverged = make_creature(diverged_genes, parent_species=founder_name)
-        reg.assign_species(diverged)
+        cid, first = _inject_candidate(reg, far_genes(seed=42), founder_name, detected_week=0)
         # Only 1 member; min_species_population=3 → should not promote
-        reg.current_week = 99
-        reg.promote_candidates([diverged], current_week=99)
+        reg.promote_candidates([first], current_week=99)
 
         assert reg.species_count == 1
         assert len(reg.speciation_events) == 0
@@ -275,9 +275,7 @@ class TestCandidatePromotion:
         """A candidate with enough members but insufficient age is not promoted."""
         reg, _, founder_name = registry_with_founder
         diverged_genes = far_genes(seed=42)
-        first = make_creature(diverged_genes, parent_species=founder_name)
-        reg.assign_species(first)
-        cid = next(iter(reg._candidates))
+        cid, first = _inject_candidate(reg, diverged_genes, founder_name, detected_week=0)
         extras = _add_members_to_candidate(reg, cid, 2, diverged_genes)
         all_members = [first] + extras
 
@@ -292,9 +290,7 @@ class TestCandidatePromotion:
         """A candidate meeting population AND age requirements is promoted to confirmed species."""
         reg, _, founder_name = registry_with_founder
         diverged_genes = far_genes(seed=42)
-        first = make_creature(diverged_genes, parent_species=founder_name)
-        reg.assign_species(first)
-        cid = next(iter(reg._candidates))
+        cid, first = _inject_candidate(reg, diverged_genes, founder_name, detected_week=0)
         extras = _add_members_to_candidate(reg, cid, 2, diverged_genes)
         all_members = [first] + extras
 
@@ -309,9 +305,7 @@ class TestCandidatePromotion:
         """All living members of a promoted candidate get the new species name."""
         reg, _, founder_name = registry_with_founder
         diverged_genes = far_genes(seed=42)
-        first = make_creature(diverged_genes, parent_species=founder_name)
-        reg.assign_species(first)
-        cid = next(iter(reg._candidates))
+        cid, first = _inject_candidate(reg, diverged_genes, founder_name, detected_week=0)
         extras = _add_members_to_candidate(reg, cid, 2, diverged_genes)
         all_members = [first] + extras
 
@@ -322,12 +316,10 @@ class TestCandidatePromotion:
             assert c.species == new_name
 
     def test_promotion_speciation_event_has_correct_fields(self, registry_with_founder):
-        """The speciation event logged on promotion has the right parent and creature_id."""
+        """The speciation event logged on promotion carries the k-means origin."""
         reg, _, founder_name = registry_with_founder
         diverged_genes = far_genes(seed=42)
-        first = make_creature(diverged_genes, parent_species=founder_name)
-        reg.assign_species(first)
-        cid = next(iter(reg._candidates))
+        cid, first = _inject_candidate(reg, diverged_genes, founder_name, detected_week=0)
         extras = _add_members_to_candidate(reg, cid, 2, diverged_genes)
 
         reg.promote_candidates([first] + extras, current_week=10)
@@ -336,15 +328,13 @@ class TestCandidatePromotion:
         assert ev["parent_species"] == founder_name
         assert ev["creature_id"] == first.creature_id
         assert ev["week"] == 10
-        assert ev["event_type"] == "cladogenesis_newborn"
+        assert ev["event_type"] == "cladogenesis_kmeans_subcluster"
 
     def test_promoted_species_name_is_adjective_noun(self, registry_with_founder):
         """The promoted species gets a valid adjective-noun name."""
         reg, _, founder_name = registry_with_founder
         diverged_genes = far_genes(seed=42)
-        first = make_creature(diverged_genes, parent_species=founder_name)
-        reg.assign_species(first)
-        cid = next(iter(reg._candidates))
+        cid, first = _inject_candidate(reg, diverged_genes, founder_name, detected_week=0)
         extras = _add_members_to_candidate(reg, cid, 2, diverged_genes)
 
         reg.promote_candidates([first] + extras, current_week=10)
@@ -358,9 +348,7 @@ class TestCandidatePromotion:
         """After promotion the new species progenitor genes are stored."""
         reg, _, founder_name = registry_with_founder
         diverged_genes = far_genes(seed=42)
-        first = make_creature(diverged_genes, parent_species=founder_name)
-        reg.assign_species(first)
-        cid = next(iter(reg._candidates))
+        cid, first = _inject_candidate(reg, diverged_genes, founder_name, detected_week=0)
         extras = _add_members_to_candidate(reg, cid, 2, diverged_genes)
 
         reg.promote_candidates([first] + extras, current_week=10)
@@ -371,8 +359,7 @@ class TestCandidatePromotion:
     def test_candidate_evaporates_when_all_members_die(self, registry_with_founder):
         """A candidate with no living members is removed and records a failed attempt."""
         reg, _, founder_name = registry_with_founder
-        diverged = make_creature(far_genes(seed=42), parent_species=founder_name)
-        reg.assign_species(diverged)
+        _, seed = _inject_candidate(reg, far_genes(seed=42), founder_name, detected_week=0)
         assert len(reg._candidates) == 1
 
         reg.promote_candidates([], current_week=99)
@@ -385,9 +372,7 @@ class TestCandidatePromotion:
     def test_failed_attempt_records_correct_fields(self, registry_with_founder):
         """A failed attempt captures parent_species, detected_week, failed_week, peak_members."""
         reg, _, founder_name = registry_with_founder
-        reg.current_week = 7
-        diverged = make_creature(far_genes(seed=42), parent_species=founder_name)
-        reg.assign_species(diverged)
+        _, seed = _inject_candidate(reg, far_genes(seed=42), founder_name, detected_week=7)
 
         reg.promote_candidates([], current_week=12)
 
@@ -396,19 +381,16 @@ class TestCandidatePromotion:
         assert attempt["detected_week"] == 7
         assert attempt["failed_week"] == 12
         assert attempt["peak_members"] == 1
-        assert attempt["first_creature_id"] == diverged.creature_id
+        assert attempt["first_creature_id"] == seed.creature_id
 
     def test_peak_members_reflects_maximum_simultaneous_count(self, registry_with_founder):
         """peak_members is the maximum number of members the candidate ever had at once."""
         reg, _, founder_name = registry_with_founder
         diverged_genes = far_genes(seed=42)
 
-        # 3 creatures join → peak_members should reach 3
-        members = []
-        for i in range(3):
-            c = make_creature(near_genes(diverged_genes, noise=0.001, seed=i), parent_species=founder_name)
-            reg.assign_species(c)
-            members.append(c)
+        # Inject with 1 seed then add 2 more → peak_members should reach 3
+        cid, first = _inject_candidate(reg, diverged_genes, founder_name)
+        extras = _add_members_to_candidate(reg, cid, 2, diverged_genes)
 
         cand = next(iter(reg._candidates.values()))
         assert cand["peak_members"] == 3
@@ -421,9 +403,7 @@ class TestCandidatePromotion:
         """A candidate that meets criteria and is promoted should NOT appear in failed attempts."""
         reg, _, founder_name = registry_with_founder
         diverged_genes = far_genes(seed=42)
-        first = make_creature(diverged_genes, parent_species=founder_name)
-        reg.assign_species(first)
-        cid = next(iter(reg._candidates))
+        cid, first = _inject_candidate(reg, diverged_genes, founder_name, detected_week=0)
         extras = _add_members_to_candidate(reg, cid, 2, diverged_genes)
 
         reg.promote_candidates([first] + extras, current_week=10)
@@ -546,19 +526,20 @@ class TestCompatibilitySignal:
         assert reg.species_count == 1
         assert len(reg._candidates) == 0
 
-    def test_divergence_in_compat_subset_creates_candidate(self):
-        """A genome that differs from the founder in the compatibility loci is
-        reproductively isolated → candidate stage."""
+    def test_divergence_in_compat_subset_assigns_to_nearest_species(self):
+        """A genome that differs in the compatibility loci is assigned to the nearest
+        living species — population-level splits are detected by k-means, not per-newborn."""
         rng = np.random.default_rng(3)
         reg = SpeciesRegistry()
         base = rng.standard_normal(GENE_DIMS)
         founder = reg.register_founding_species(base, name="Base Dweller")
 
         c = make_creature(with_new_compat(base, seed=50), parent_species=founder)
-        reg.assign_species(c)
+        assigned = reg.assign_species(c)
 
+        assert assigned == founder
         assert reg.species_count == 1
-        assert len(reg._candidates) == 1
+        assert len(reg._candidates) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -609,15 +590,16 @@ class TestRefreshCentroids:
             make_creature(near_genes(base, noise=0.001, seed=i), parent_species=founder)
             for i in range(3)
         ]
-        # A diverging cluster (far in compat space) — assigning makes them a
-        # candidate, but they keep the founder label.
+        # A diverging cluster (far in compat space) — inject as a k-means candidate.
         far_compat = with_new_compat(base, seed=70)
         candidate_members = [
             make_creature(near_genes(far_compat, noise=0.001, seed=200 + i), parent_species=founder)
             for i in range(4)
         ]
-        for c in candidate_members:
-            reg.assign_species(c)
+        cid, _ = _inject_candidate(reg, candidate_members[0].genes, founder)
+        # Replace the internal seed ID with the actual candidate_members' IDs so
+        # refresh_centroids excludes the right creatures from the parent centroid.
+        reg._candidates[cid]["members"] = {c.creature_id for c in candidate_members}
         assert len(reg._candidates) == 1
 
         reg.refresh_centroids(normal + candidate_members)

@@ -427,30 +427,34 @@ def species_phylogeny(run: dict, min_weeks: int = 0) -> go.Figure:
         hovertext=node_labels,
         hoverinfo="text",
         customdata=node_customdata,
-        name="",
+        showlegend=False,
     ))
 
-    # ── Legend annotations ────────────────────────────────────────────────────
+    # ── Legend annotations (only for event types that actually appear) ────────
+    color_set = set(node_colors)
     fig.add_trace(go.Scatter(
         x=[None], y=[None], mode="markers",
         marker=dict(color="#e4f4a0", size=10),
         name="founder species",
     ))
-    fig.add_trace(go.Scatter(
-        x=[None], y=[None], mode="markers",
-        marker=dict(color="#56c456", size=10),
-        name="cladogenesis: newborn isolation",
-    ))
-    fig.add_trace(go.Scatter(
-        x=[None], y=[None], mode="markers",
-        marker=dict(color="#4a90d9", size=10),
-        name="cladogenesis: k-means subcluster split",
-    ))
-    fig.add_trace(go.Scatter(
-        x=[None], y=[None], mode="markers",
-        marker=dict(color="#e8a23d", size=10),
-        name="anagenesis (in-place transformation)",
-    ))
+    if "#56c456" in color_set:
+        fig.add_trace(go.Scatter(
+            x=[None], y=[None], mode="markers",
+            marker=dict(color="#56c456", size=10),
+            name="cladogenesis: newborn isolation (legacy)",
+        ))
+    if "#4a90d9" in color_set:
+        fig.add_trace(go.Scatter(
+            x=[None], y=[None], mode="markers",
+            marker=dict(color="#4a90d9", size=10),
+            name="cladogenesis: k-means subcluster split",
+        ))
+    if "#e8a23d" in color_set:
+        fig.add_trace(go.Scatter(
+            x=[None], y=[None], mode="markers",
+            marker=dict(color="#e8a23d", size=10),
+            name="anagenesis (in-place transformation)",
+        ))
 
     all_weeks = run.get("all_weeks", [0])
     max_w = max(all_weeks)

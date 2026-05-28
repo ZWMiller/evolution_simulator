@@ -147,14 +147,13 @@ compatibility_threshold = 0.65
 # the species count.
 #
 # When a newborn's compatibility falls below compatibility_threshold for ALL
-# living species, it enters a "candidate" stage instead of immediately creating
-# a new species.  The
-# creature keeps its parent's species label throughout.  A candidate is promoted
-# to a confirmed species only when BOTH conditions are met:
+# When a k-means sub-cluster split is detected, the diverging cluster enters a
+# "candidate" stage and is promoted to a confirmed species only when BOTH
+# conditions are met:
 #
-#   min_species_population : at least this many living creatures belong to the
-#     candidate cluster at the time of the promotion check.  Prevents a lone
-#     outlier genome from spawning a species that never reproduces.
+#   min_species_population : minimum living members required for a k-means
+#     sub-cluster to be considered a valid split (also the promotion gate).
+#     Prevents small transient clusters from being named species.
 #
 #   min_species_weeks : the candidate must have existed for at least this many
 #     weeks before it can be promoted.  Prevents a single generation of
@@ -163,7 +162,6 @@ compatibility_threshold = 0.65
 # Candidates whose members all die before meeting these criteria are silently
 # evaporated — no speciation event is logged.
 #
-# Setting both to 1 approximates original (immediate) speciation behaviour.
 # Tuned for the generational timescale: a generation is ~25-35 weeks, so these
 # require a divergence to persist for a couple of generations as a real
 # sub-population before it is named a species (rather than a few individuals over
@@ -171,20 +169,17 @@ compatibility_threshold = 0.65
 min_species_population = 10
 min_species_weeks = 60
 
-# Sub-cluster split detection (cladogenesis).  Every refresh, each species'
-# members are clustered in compatibility space; if they fall into 2+ groups that
-# can no longer interbreed, the group nearest the founding type keeps the name
-# and the others split off.  This catches divergence a single species centroid
-# would mask (e.g. one species adapting separately in two disconnected habitats:
-# their shared centroid sits at the midpoint and hides the split until they are
-# nearly anti-aligned — clustering the members detects it at the moment they stop
-# interbreeding instead).
+# Sub-cluster split detection (cladogenesis).  Every respeciate_every weeks,
+# each species' members are clustered in compatibility space; if they fall into
+# 2+ groups that can no longer interbreed, the group nearest the founding type
+# keeps the name and the others split off as candidates.
 #   split_max_k                : max sub-clusters considered per species (1..K).
-#   split_isolation_threshold  : two sub-clusters are "different species" when
-#     their centroid cosine is below this.  Defaults to the mating floor (0.70)
-#     so a split coincides with actual reproductive isolation.
+#   split_isolation_threshold  : sub-cluster centroids must be mutually below
+#     this cosine to count as a split.  Set above the mating floor (0.70) so
+#     detected splits represent cleanly non-interbreeding populations, not
+#     marginal centroid separation where boundary individuals can still mate.
 split_max_k = 5
-split_isolation_threshold = 0.70
+split_isolation_threshold = 0.75
 
 # Anagenesis detection (in-place lineage transformation, no split).  A lineage
 # can stay one interbreeding population yet drift far from its ancestral form

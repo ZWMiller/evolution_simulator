@@ -84,14 +84,14 @@ newborn removal.
 
 ### Acceptance criteria
 
-- [ ] A newborn scoring below `compatibility_threshold` for all species is
+- [x] A newborn scoring below `compatibility_threshold` for all species is
       assigned to the nearest-centroid species, creates no candidate, logs no
       speciation event.
-- [ ] K-means split continues to detect bimodal splits and flow candidates
+- [x] K-means split continues to detect bimodal splits and flow candidates
       through the two-stage gate.
-- [ ] Anagenesis fires correctly in existing test cases.
-- [ ] `split_isolation_threshold = 0.75` is the new default.
-- [ ] All existing tests pass (minus newborn-cladogenesis-specific ones, updated).
+- [x] Anagenesis fires correctly in existing test cases.
+- [x] `split_isolation_threshold = 0.75` is the new default.
+- [x] All existing tests pass (minus newborn-cladogenesis-specific ones, updated).
 - [ ] A long smoke-test run produces fewer total speciation events and longer
       mean species lifespan than an equivalent run with newborn cladogenesis.
 

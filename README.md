@@ -98,29 +98,30 @@ gates mating. Each species keeps **two references**:
 - a **living compatibility centroid**, refreshed every `respeciate_every` weeks from current
   members — so a whole population drifting together never speciates (the reference moves with it).
 
-Three mechanisms run on top of this:
+Two mechanisms run on top of this:
 
-1. **Membership.** A newborn joins the nearest living species whose centroid is within
-   `compatibility_threshold` (compat-subset cosine); otherwise it enters a two-stage **candidate**
-   that is promoted to a confirmed species only once it has `min_species_population` members and
-   has persisted `min_species_weeks` weeks.
+1. **Cladogenesis (population splits).** Periodically, each species' members are clustered in
+   compatibility space (spherical k-means, K = 1..`split_max_k`); the largest K whose sub-clusters
+   are all mutually below `split_isolation_threshold` wins. This threshold sits *above* the 0.70
+   mating floor (default 0.75) so detected splits represent genuinely non-interbreeding populations.
+   The sub-cluster nearest the frozen type keeps the name; the others enter a two-stage **candidate**
+   gate (`min_species_population` members + `min_species_weeks` persistence) before being promoted.
+   This catches divergence a single centroid would mask — e.g. one species adapting separately in
+   two disconnected habitats, whose shared centroid hides the split.
 
-2. **Cladogenesis (splits).** Periodically, each species' members are clustered in compatibility
-   space (spherical k-means, K = 1..`split_max_k`); the largest K whose sub-clusters are mutually
-   below `split_isolation_threshold` (the mating floor) wins. The sub-cluster nearest the frozen
-   type keeps the name; the others split off. This catches divergence a single centroid would mask
-   — e.g. one species adapting separately in two disconnected habitats, whose shared centroid sits
-   at their midpoint and hides the split until they are nearly anti-aligned.
-
-3. **Anagenesis (transformation).** A lineage can stay one interbreeding population yet drift far
+2. **Anagenesis (transformation).** A lineage can stay one interbreeding population yet drift far
    from its ancestral *form* over time (think dogs from wolves). When a species' living **phenotype**
    centroid drifts below `anagenesis_threshold` (centred cosine) from its frozen type and *persists*
    for `anagenesis_weeks`, a descendant species is minted and living members are re-sorted to
    whichever (ancestor vs descendant) they now resemble. Dead ancestors keep their labels — the log
    is the fossil record.
 
-Every speciation event carries an `event_type` of `"cladogenesis"` or `"anagenesis"`, which the
-visualizers render distinctly in the phylogeny.
+**Newborn assignment:** every newborn is assigned to the nearest living species by centroid cosine,
+regardless of threshold. Outlier newborns won't mate back into that species (mating still enforces
+the 0.70 floor) but they count under it and create no candidate. A diverging sub-population only
+becomes a new species once the population-level k-means split detects a genuine bimodal distribution.
+
+Every speciation event carries an `event_type`; the visualizers render these distinctly in the phylogeny.
 
 ---
 
@@ -258,7 +259,7 @@ compatibility_threshold   = 0.65        # compat-subset cosine vs living centroi
 min_species_population     = 10         # candidate members required to promote
 min_species_weeks          = 60         # weeks a candidate must persist (~2 generations)
 split_max_k                = 5          # max sub-clusters considered per species
-split_isolation_threshold  = 0.70       # sub-clusters below this are different species (= mating floor)
+split_isolation_threshold  = 0.75       # sub-clusters below this are different species (above 0.70 mating floor)
 anagenesis_threshold       = 0.93       # centred phenotype cosine drift that counts as transformation
 anagenesis_weeks           = 60         # weeks that drift must persist before naming
 
@@ -294,13 +295,13 @@ simulation_logs/2024-01-15_14-30-00/
 Speciation events (per-week when logged, and complete in `summary.json`) look like:
 
 ```jsonc
-{ "new_species": "...", "parent_species": "...", "creature_id": "...",
-  "week": 1240, "event_type": "cladogenesis_newborn" }
+{ "new_species": "...", "parent_species": "...", "week": 1240,
+  "event_type": "cladogenesis_kmeans_subcluster" }
 // event_type values:
-//   "cladogenesis_newborn"          – newborn outside all living species; promoted from candidate
 //   "cladogenesis_kmeans_subcluster"– k-means split detector found reproductively-isolated sub-clusters
 //   "cladogenesis_bootstrap"        – founding species registration
 //   "anagenesis"                    – in-place phenotype transformation (chronospecies)
+// Note: "cladogenesis_newborn" may appear in logs from runs before this change; it is no longer emitted.
 ```
 
 Visualize a run with `python visualizer_basic.py` (static charts) or `python visualizer_advanced.py`

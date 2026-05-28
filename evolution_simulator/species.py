@@ -3,11 +3,9 @@ Species tracking for the evolution simulator.
 
 Speciation is detected on the **same signal that governs mating**: the
 245-locus ``compatibility_genes`` subset (see Creature.compatibility_score).
-A newborn's compatibility sub-vector is compared by cosine similarity against
-the **living centroid** of every species that currently has living members.
-The creature joins the nearest species if that similarity meets
-``compatibility_threshold``; otherwise it enters a candidate stage that may be
-promoted to a confirmed species.
+Every newborn is assigned to the nearest living species by centroid cosine
+similarity.  Genuine reproductive isolation — and thus a new species — is
+declared only when a *population-level* detector finds a bimodal split.
 
 Why living centroids (not frozen progenitors)
 ---------------------------------------------
@@ -31,10 +29,10 @@ Two references per species
 ---------------------------
 Each confirmed species keeps two genomes:
   - **type** (full 500-dim, frozen at founding/promotion): anchors the name
-    ("the name follows the type") and is reserved for the future *anagenesis*
-    axis, which will measure how far a lineage has drifted from its own past.
+    ("the name follows the type") and feeds the anagenesis axis, which measures
+    how far a lineage has drifted from its own past.
   - **living centroid** (245-dim compatibility subset, refreshed periodically):
-    the reproductive reference used for C2 detection here.
+    the reproductive reference used for population-level split detection.
 """
 
 import random
@@ -272,15 +270,14 @@ class SpeciesRegistry:
 
     def assign_species(self, creature: "Creature") -> str:
         """
-        Assign or update the species for a newborn creature (two-stage).
+        Assign the species for a newborn creature.
 
         1. No living centroids (empty/extinct registry): register a confirmed
            species immediately (bootstrap).
-        2. Compatible match: the creature joins the nearest living species whose
-           centroid is within compatibility_threshold.
-        3. Reproductively isolated: the creature joins the nearest candidate (if
-           close enough) or founds a new one.  In both cases it retains its
-           inherited parent species label until/unless the candidate is promoted.
+        2. Otherwise: assign to the nearest living species by centroid cosine
+           similarity, regardless of whether the score clears
+           compatibility_threshold.  Genuine reproductive isolation is detected
+           at the population level by detect_subcluster_splits(), not per-newborn.
 
         Sets ``creature.species`` as a side effect and returns the name.
         """
@@ -292,34 +289,9 @@ class SpeciesRegistry:
             creature.species = name
             return name
 
-        best_name, best_score = self._closest_centroid(compat)
-        if best_score >= self.compatibility_threshold:
-            creature.species = best_name
-            return best_name
-
-        # Reproductively isolated from every living species — candidate stage.
-        parent_species = creature.species  # inherited label; kept through candidacy
-        cid, cand_score = self._closest_candidate(compat)
-
-        if cid is not None and cand_score >= self.compatibility_threshold:
-            cand = self._candidates[cid]
-            cand["members"].add(creature.creature_id)
-            cand["peak_members"] = max(cand["peak_members"], len(cand["members"]))
-        else:
-            new_cid = f"cand_{self._next_candidate_id}"
-            self._next_candidate_id += 1
-            self._candidates[new_cid] = {
-                "genes": creature.genes.copy(),
-                "compat": compat.copy(),
-                "parent_species": parent_species,
-                "detected_week": self.current_week,
-                "members": {creature.creature_id},
-                "first_creature_id": creature.creature_id,
-                "peak_members": 1,
-                "origin": "newborn",
-            }
-
-        return creature.species
+        best_name, _ = self._closest_centroid(compat)
+        creature.species = best_name
+        return best_name
 
     def refresh_centroids(self, alive_creatures: "list[Creature]") -> None:
         """
@@ -409,7 +381,7 @@ class SpeciesRegistry:
                     else cand["compat"]
                 )
                 self._add_to_registry(new_name, cand["genes"], centroid=centroid)
-                origin = cand.get("origin", "newborn")
+                origin = cand.get("origin", "kmeans_subcluster")
                 ev = {
                     "new_species": new_name,
                     "parent_species": cand["parent_species"],
