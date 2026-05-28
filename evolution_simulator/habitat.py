@@ -360,9 +360,11 @@ class Habitat:
         Base energy lost when no food is found (scaled by creature.metabolism).
     WATER_HYDRATION_GAIN : float
         Hydration gained when water is found (per day).
-    WATER_HYDRATION_COST : float
-        Base hydration lost when no water is found
-        (scaled by 1 - creature.water_efficiency).
+    WATER_BASE_COST : float
+        Fixed hydration lost per missed water week (irreducible by water_efficiency).
+    WATER_EFFICIENCY_COST : float
+        Variable hydration cost scaled by (1 - creature.water_efficiency); added to
+        WATER_BASE_COST so total cost = WATER_BASE_COST + WATER_EFFICIENCY_COST * (1 - eff).
     WEEKLY_MIGRATION_BASE : float
         Multiplier applied to creature.migration_likelihood to get the actual
         per-week migration probability.  Keeps average migration rare even when
@@ -376,12 +378,19 @@ class Habitat:
     # rose from ~14% at low gain (0.10–0.22) to ~22% at high gain (0.35–0.60);
     # estimated viable range 0.35–0.60.
     FOOD_ENERGY_GAIN: float = 0.47
-    # Initial viability study (481 LHS trials, not extensive): stable outcomes
-    # peaked at ~28% at low cost (0.05–0.14) and dropped to ~8% above 0.32;
-    # estimated viable range 0.05–0.22.
-    FOOD_ENERGY_COST: float = 0.15   # multiplied by creature.metabolism
-    WATER_HYDRATION_GAIN: float = 0.30
-    WATER_HYDRATION_COST: float = 0.25  # multiplied by (1 - creature.water_efficiency)
+    # Raised from 0.15 to create a real metabolic tradeoff: high-metabolism creatures
+    # (≈1.73 for random genes) face barely-positive drift at p_food=0.5, and negative
+    # drift at max metabolism (2.0). Low-metabolism creatures remain comfortable.
+    FOOD_ENERGY_COST: float = 0.22   # multiplied by creature.metabolism
+    # Lowered from 0.30 to tip unadapted creatures into slightly negative water drift,
+    # making water a genuine survival pressure rather than a free stat.
+    WATER_HYDRATION_GAIN: float = 0.26
+    # Split into a base cost (always applies) and an efficiency-variable component.
+    # water_efficiency reduces the variable portion but cannot eliminate the base cost,
+    # making water-finding alignment matter even for high-efficiency creatures.
+    # Use: WATER_BASE_COST + WATER_EFFICIENCY_COST * (1 - water_efficiency)
+    WATER_BASE_COST: float = 0.20
+    WATER_EFFICIENCY_COST: float = 0.30
 
     # Raw migration_likelihood ∈ [0, 1] is multiplied by this so that a
     # creature with an average trait (~0.5) has only a 0.5% weekly chance of
@@ -953,11 +962,11 @@ class Habitat:
                     1.0, creature.hydration + self.WATER_HYDRATION_GAIN
                 )
             else:
-                creature.hydration = max(
-                    0.0,
-                    creature.hydration
-                    - self.WATER_HYDRATION_COST * (1.0 - creature.water_efficiency),
+                water_cost = (
+                    self.WATER_BASE_COST
+                    + self.WATER_EFFICIENCY_COST * (1.0 - creature.water_efficiency)
                 )
+                creature.hydration = max(0.0, creature.hydration - water_cost)
 
             # --- Advance creature's week ---
             # creature.simulate_week() handles starvation / dehydration checks
