@@ -1,6 +1,9 @@
 # Simulation output — never commit run logs
 simulation_logs/
 
+# Experiment output — image frames and raw run data
+experiments/bimodality_output/
+
 # Python
 __pycache__/
 *.pyc

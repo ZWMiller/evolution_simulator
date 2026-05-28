@@ -1,0 +1,50 @@
+# bimodality_experiment.toml
+#
+# Two isolated habitats (Forest + Wetlands), zero creatures seeded by the
+# runner. The experiment script (cladogenesis_bimodality.py) builds a single
+# founding genome biased toward the AVERAGE of both habitat vectors so the
+# population is viable in both environments and starts from a truly shared
+# ancestor.  Without this the mirror mode uses a purely random genome and
+# both populations die out quickly under the raised food/water selection
+# pressure on this branch.
+
+[simulation]
+weeks                       = 3000
+seed                        = 42
+output_dir                  = "simulation_logs"
+
+mirror_founding_population  = false  # script handles seeding manually
+initial_species_per_habitat = 0      # script adds creatures after setup
+creatures_per_species       = 0
+initial_genome_noise        = 0.05
+founding_habitat_bias       = 0.0
+
+isolation_probability       = 0.0    # no connections → no migration
+
+stats_every                 = 0      # experiment drives its own output
+events_every                = 0
+respeciate_every            = 10
+
+[species]
+compatibility_threshold     = 0.65
+min_species_population      = 10
+min_species_weeks           = 60
+split_max_k                 = 5
+split_isolation_threshold   = 0.75
+anagenesis_threshold        = 0.93
+anagenesis_weeks            = 60
+
+[habitats]
+connections = []
+
+[[habitats.instances]]
+id   = "forest_1"
+type = "Forest"
+seed = 1
+name = "Forest"
+
+[[habitats.instances]]
+id   = "plains_1"
+type = "Plains"
+seed = 2
+name = "Plains"
