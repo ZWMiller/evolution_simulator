@@ -6,22 +6,23 @@ Cross-machine task tracking for active development items.
 
 ## Immediate / Next Session
 
-### Remove newborn cladogenesis; rely solely on k-means for speciation
+### Validation runs for food/water retune + cladogenesis changes (branch: feature/food-water-retune-cladogenesis)
 
-See `PLANNING_TEMP.md` for full design. Summary:
+The branch raises food/water selection pressure and removes newborn cladogenesis
+(k-means subcluster splits are now the sole speciation path). Need longer runs to
+validate the changes behave as expected before merging.
 
-- Remove the per-newborn candidate-creation path in `species.py`. Newborns that
-  fall below `compatibility_threshold` for all species get assigned to the
-  nearest-centroid species (Option A) instead of starting a candidate cluster.
-- K-means subcluster splits remain the sole speciation mechanism. Two-stage
-  candidate gate retained for k-means-sourced candidates.
-- Raise `split_isolation_threshold` default from 0.70 → 0.75 in `simulation.toml`
-  and long-run configs.
-- Update/remove tests that exercise the newborn cladogenesis path.
-- Motivation: 1,782 newborn events vs 237 k-means in the 30k run — mostly noise.
-  Also blocking anagenesis: constant newborn peeling resets the phenotype-drift
-  clock so anagenesis never fires. Expect anagenesis to become meaningful after
-  this change.
+Things to look for:
+- Food/water pressure: are metabolism and water_efficiency now under meaningful
+  selection? Mean values should drift downward (metabolism) and upward
+  (water_efficiency) over thousands of weeks vs. the old flat trajectories.
+- Cladogenesis: far fewer total speciation events; no `cladogenesis_newborn`
+  entries in summary.json. K-means splits should still fire when populations
+  genuinely diverge across disconnected habitats.
+- Anagenesis: should now fire meaningfully in long runs — the newborn peeling
+  that was continuously resetting the phenotype-drift clock is gone.
+- Species lifespan: mean species lifetime should be longer than equivalent runs
+  on main (less churn from spurious candidates).
 
 ---
 
