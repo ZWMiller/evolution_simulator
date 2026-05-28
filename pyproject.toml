@@ -5,7 +5,7 @@ description = "Evolution simulation using high-dimensional genetic vectors"
 authors = [
     {name = "ZWMiller"}
 ]
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 dependencies = [
     "numpy (>=2.4.4,<3.0.0)",
     "plotly (>=6.7.0,<7.0.0)",
@@ -27,7 +27,7 @@ dev = [
 
 [tool.ruff]
 line-length = 110
-target-version = "py312"
+target-version = "py313"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B"]
