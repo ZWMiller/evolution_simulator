@@ -10,8 +10,8 @@ import json
 import dash_cytoscape as cyto
 from dash import dcc, html
 
-from visualizer.network import build_cyto_elements, CYTO_STYLESHEET
-from visualizer.style import BG, PANEL_BG, BORDER, TEXT, DIMTEXT, BRIGHT, FONT
+from visualizer.network import CYTO_STYLESHEET, build_cyto_elements
+from visualizer.style import BG, BORDER, BRIGHT, DIMTEXT, FONT, PANEL_BG, TEXT
 
 
 def _mode_btn(label: str, mode: str, active: bool = False) -> html.Button:
@@ -35,17 +35,21 @@ def _mode_btn(label: str, mode: str, active: bool = False) -> html.Button:
 
 def build(run: dict) -> html.Div:
     all_weeks = run["all_weeks"]
-    min_week  = all_weeks[0]
-    max_week  = all_weeks[-1]
-    summary   = run["summary"]
+    min_week = all_weeks[0]
+    max_week = all_weeks[-1]
+    summary = run["summary"]
     all_species = run["all_species"]
 
     status_color = "#aa2020" if run["extinct"] else "#3a7a3a"
     status_label = "EXTINCT" if run["extinct"] else "ALIVE"
 
     _btn_style = dict(
-        background="none", border="none", cursor="pointer",
-        fontFamily=FONT, letterSpacing="0.06em", fontSize="12px",
+        background="none",
+        border="none",
+        cursor="pointer",
+        fontFamily=FONT,
+        letterSpacing="0.06em",
+        fontSize="12px",
     )
 
     header = html.Div(
@@ -66,8 +70,7 @@ def build(run: dict) -> html.Div:
             ),
             html.Span(
                 status_label,
-                style=dict(color=status_color, marginRight="24px",
-                           fontSize="12px", fontWeight="bold"),
+                style=dict(color=status_color, marginRight="24px", fontSize="12px", fontWeight="bold"),
             ),
             html.Span(
                 f"CFG: {run['config_name']}",
@@ -78,14 +81,17 @@ def build(run: dict) -> html.Div:
             # ── Mode switcher ─────────────────────────────────────────────────
             html.Div(
                 [
-                    _mode_btn("HABITAT",       "habitat",            active=True),
-                    _mode_btn("PHYLOGENY",     "phylogeny"),
-                    _mode_btn("FAMILY TREE",   "family_tree"),
+                    _mode_btn("HABITAT", "habitat", active=True),
+                    _mode_btn("PHYLOGENY", "phylogeny"),
+                    _mode_btn("FAMILY TREE", "family_tree"),
                     _mode_btn("TRAIT COMPARE", "trait_comparison"),
                 ],
                 id="mode-switcher",
                 style=dict(
-                    display="flex", gap="6px", marginLeft="auto", marginRight="24px",
+                    display="flex",
+                    gap="6px",
+                    marginLeft="auto",
+                    marginRight="24px",
                 ),
             ),
             html.Span(
@@ -95,10 +101,14 @@ def build(run: dict) -> html.Div:
             ),
         ],
         style=dict(
-            display="flex", alignItems="center", height="46px",
-            padding="0 20px", backgroundColor=BG,
+            display="flex",
+            alignItems="center",
+            height="46px",
+            padding="0 20px",
+            backgroundColor=BG,
             borderBottom=f"1px solid {BORDER}",
-            fontFamily=FONT, boxSizing="border-box",
+            fontFamily=FONT,
+            boxSizing="border-box",
         ),
     )
 
@@ -116,8 +126,10 @@ def build(run: dict) -> html.Div:
         ),
         id="habitat-canvas",
         style=dict(
-            position="absolute", inset="0",
-            display="block", overflow="hidden",
+            position="absolute",
+            inset="0",
+            display="block",
+            overflow="hidden",
         ),
     )
 
@@ -127,10 +139,17 @@ def build(run: dict) -> html.Div:
             # Control bar
             html.Div(
                 [
-                    html.Span("min weeks survived:", style=dict(
-                        color=DIMTEXT, fontSize="11px", fontFamily=FONT,
-                        alignSelf="center", marginRight="8px", whiteSpace="nowrap",
-                    )),
+                    html.Span(
+                        "min weeks survived:",
+                        style=dict(
+                            color=DIMTEXT,
+                            fontSize="11px",
+                            fontFamily=FONT,
+                            alignSelf="center",
+                            marginRight="8px",
+                            whiteSpace="nowrap",
+                        ),
+                    ),
                     dcc.Input(
                         id="phylo-min-weeks",
                         type="number",
@@ -140,25 +159,36 @@ def build(run: dict) -> html.Div:
                         debounce=True,
                         placeholder="0",
                         style=dict(
-                            width="90px", backgroundColor="#0b0f0b",
-                            color=TEXT, fontFamily=FONT, fontSize="12px",
-                            border=f"1px solid {BORDER}", borderRadius="2px",
+                            width="90px",
+                            backgroundColor="#0b0f0b",
+                            color=TEXT,
+                            fontFamily=FONT,
+                            fontSize="12px",
+                            border=f"1px solid {BORDER}",
+                            borderRadius="2px",
                             padding="2px 6px",
                         ),
                     ),
                     html.Span(
                         "  (filters out species with a shorter lifespan)",
                         style=dict(
-                            color=DIMTEXT, fontSize="10px", fontFamily=FONT,
-                            alignSelf="center", marginLeft="8px",
+                            color=DIMTEXT,
+                            fontSize="10px",
+                            fontFamily=FONT,
+                            alignSelf="center",
+                            marginLeft="8px",
                         ),
                     ),
                 ],
                 style=dict(
-                    display="flex", alignItems="center",
-                    padding="8px 16px", height="46px",
-                    backgroundColor=BG, borderBottom=f"1px solid {BORDER}",
-                    boxSizing="border-box", flexShrink="0",
+                    display="flex",
+                    alignItems="center",
+                    padding="8px 16px",
+                    height="46px",
+                    backgroundColor=BG,
+                    borderBottom=f"1px solid {BORDER}",
+                    boxSizing="border-box",
+                    flexShrink="0",
                 ),
             ),
             dcc.Graph(
@@ -172,8 +202,10 @@ def build(run: dict) -> html.Div:
         ],
         id="phylogeny-canvas",
         style=dict(
-            position="absolute", inset="0",
-            display="none", overflow="hidden",
+            position="absolute",
+            inset="0",
+            display="none",
+            overflow="hidden",
             flexDirection="column",
         ),
     )
@@ -184,49 +216,77 @@ def build(run: dict) -> html.Div:
             # Control bar: species selector + creature selector
             html.Div(
                 [
-                    html.Span("species:", style=dict(
-                        color=DIMTEXT, fontSize="11px", fontFamily=FONT,
-                        alignSelf="center", marginRight="8px",
-                    )),
+                    html.Span(
+                        "species:",
+                        style=dict(
+                            color=DIMTEXT,
+                            fontSize="11px",
+                            fontFamily=FONT,
+                            alignSelf="center",
+                            marginRight="8px",
+                        ),
+                    ),
                     dcc.Dropdown(
                         id="ft-species-dropdown",
                         options=[{"label": sp, "value": sp} for sp in all_species],
                         placeholder="select species…",
                         clearable=True,
                         style=dict(
-                            width="220px", backgroundColor="#0b0f0b",
-                            color=TEXT, fontFamily=FONT, fontSize="12px",
-                            border=f"1px solid {BORDER}", borderRadius="2px",
+                            width="220px",
+                            backgroundColor="#0b0f0b",
+                            color=TEXT,
+                            fontFamily=FONT,
+                            fontSize="12px",
+                            border=f"1px solid {BORDER}",
+                            borderRadius="2px",
                         ),
                     ),
-                    html.Span("creature:", style=dict(
-                        color=DIMTEXT, fontSize="11px", fontFamily=FONT,
-                        alignSelf="center", marginLeft="20px", marginRight="8px",
-                    )),
+                    html.Span(
+                        "creature:",
+                        style=dict(
+                            color=DIMTEXT,
+                            fontSize="11px",
+                            fontFamily=FONT,
+                            alignSelf="center",
+                            marginLeft="20px",
+                            marginRight="8px",
+                        ),
+                    ),
                     dcc.Dropdown(
                         id="ft-creature-dropdown",
                         options=[],
                         placeholder="select creature…",
                         clearable=True,
                         style=dict(
-                            width="320px", backgroundColor="#0b0f0b",
-                            color=TEXT, fontFamily=FONT, fontSize="12px",
-                            border=f"1px solid {BORDER}", borderRadius="2px",
+                            width="320px",
+                            backgroundColor="#0b0f0b",
+                            color=TEXT,
+                            fontFamily=FONT,
+                            fontSize="12px",
+                            border=f"1px solid {BORDER}",
+                            borderRadius="2px",
                         ),
                     ),
                     html.Span(
                         "click any node to re-centre",
                         style=dict(
-                            color=DIMTEXT, fontSize="10px", fontFamily=FONT,
-                            marginLeft="20px", alignSelf="center",
+                            color=DIMTEXT,
+                            fontSize="10px",
+                            fontFamily=FONT,
+                            marginLeft="20px",
+                            alignSelf="center",
                         ),
                     ),
                 ],
                 style=dict(
-                    display="flex", alignItems="center",
-                    padding="8px 16px", height="46px",
-                    backgroundColor=BG, borderBottom=f"1px solid {BORDER}",
-                    boxSizing="border-box", flexShrink="0",
+                    display="flex",
+                    alignItems="center",
+                    padding="8px 16px",
+                    height="46px",
+                    backgroundColor=BG,
+                    borderBottom=f"1px solid {BORDER}",
+                    boxSizing="border-box",
+                    flexShrink="0",
                 ),
             ),
             # Wheel figure
@@ -241,8 +301,10 @@ def build(run: dict) -> html.Div:
         ],
         id="family-tree-canvas",
         style=dict(
-            position="absolute", inset="0",
-            display="none", overflow="hidden",
+            position="absolute",
+            inset="0",
+            display="none",
+            overflow="hidden",
             flexDirection="column",
         ),
     )
@@ -251,28 +313,33 @@ def build(run: dict) -> html.Div:
     # Build metric options from actual logged fields so the list stays current
     # even if new traits are added to the simulation.
     _sample_rows = next(iter(run["species_global"].values()), [])
-    _sample_row  = _sample_rows[0] if _sample_rows else {}
-    _logged_traits = sorted(
-        k for k in _sample_row
-        if k not in ("week", "count", "mean_generation")
-    )
+    _sample_row = _sample_rows[0] if _sample_rows else {}
+    _logged_traits = sorted(k for k in _sample_row if k not in ("week", "count", "mean_generation"))
     tc_metric_options = [
-        {"label": "── Population ──",   "value": "__h_pop",    "disabled": True},
-        {"label": "Population count",   "value": "count"},
-        {"label": "Mean generation",    "value": "mean_generation"},
-        {"label": "── Resource ──",     "value": "__h_res",    "disabled": True},
-        {"label": "Food probability",   "value": "mean_food_prob"},
-        {"label": "Water probability",  "value": "mean_water_prob"},
-        {"label": "── Traits ──",       "value": "__h_traits", "disabled": True},
+        {"label": "── Population ──", "value": "__h_pop", "disabled": True},
+        {"label": "Population count", "value": "count"},
+        {"label": "Mean generation", "value": "mean_generation"},
+        {"label": "── Resource ──", "value": "__h_res", "disabled": True},
+        {"label": "Food probability", "value": "mean_food_prob"},
+        {"label": "Water probability", "value": "mean_water_prob"},
+        {"label": "── Traits ──", "value": "__h_traits", "disabled": True},
     ] + [{"label": t.replace("_", " "), "value": t} for t in _logged_traits]
 
     _dd_style = dict(
-        backgroundColor="#0b0f0b", color=TEXT, fontFamily=FONT,
-        fontSize="12px", border=f"1px solid {BORDER}", borderRadius="2px",
+        backgroundColor="#0b0f0b",
+        color=TEXT,
+        fontFamily=FONT,
+        fontSize="12px",
+        border=f"1px solid {BORDER}",
+        borderRadius="2px",
     )
     _lbl_style = dict(
-        color=DIMTEXT, fontSize="11px", fontFamily=FONT,
-        alignSelf="center", marginRight="8px", whiteSpace="nowrap",
+        color=DIMTEXT,
+        fontSize="11px",
+        fontFamily=FONT,
+        alignSelf="center",
+        marginRight="8px",
+        whiteSpace="nowrap",
     )
 
     trait_comparison_canvas = html.Div(
@@ -298,22 +365,27 @@ def build(run: dict) -> html.Div:
                     ),
                     dcc.Checklist(
                         id="tc-anagenesis-check",
-                        options=[{"label": " include anagenesis descendants",
-                                  "value": "yes"}],
+                        options=[{"label": " include anagenesis descendants", "value": "yes"}],
                         value=[],
                         style=dict(
-                            marginLeft="24px", color=DIMTEXT,
-                            fontFamily=FONT, fontSize="11px",
+                            marginLeft="24px",
+                            color=DIMTEXT,
+                            fontFamily=FONT,
+                            fontSize="11px",
                             alignSelf="center",
                         ),
                         inputStyle={"marginRight": "6px", "accentColor": "#3a7a3a"},
                     ),
                 ],
                 style=dict(
-                    display="flex", alignItems="center",
-                    padding="8px 16px", height="54px",
-                    backgroundColor=BG, borderBottom=f"1px solid {BORDER}",
-                    boxSizing="border-box", flexShrink="0",
+                    display="flex",
+                    alignItems="center",
+                    padding="8px 16px",
+                    height="54px",
+                    backgroundColor=BG,
+                    borderBottom=f"1px solid {BORDER}",
+                    boxSizing="border-box",
+                    flexShrink="0",
                     gap="4px",
                 ),
             ),
@@ -328,19 +400,23 @@ def build(run: dict) -> html.Div:
         ],
         id="trait-comparison-canvas",
         style=dict(
-            position="absolute", inset="0",
-            display="none", overflow="hidden",
+            position="absolute",
+            inset="0",
+            display="none",
+            overflow="hidden",
             flexDirection="column",
         ),
     )
 
     # ── Canvas container (all four layers stacked) ────────────────────────────
     canvas_area = html.Div(
-        [habitat_canvas, phylogeny_canvas, family_tree_canvas,
-         trait_comparison_canvas],
+        [habitat_canvas, phylogeny_canvas, family_tree_canvas, trait_comparison_canvas],
         id="canvas-area",
         style=dict(
-            flex="1", position="relative", overflow="hidden", minWidth="200px",
+            flex="1",
+            position="relative",
+            overflow="hidden",
+            minWidth="200px",
         ),
     )
 
@@ -364,25 +440,37 @@ def build(run: dict) -> html.Div:
                     "×",
                     id={"type": "panel-action", "action": json.dumps({"kind": "close"})},
                     n_clicks=0,
-                    style=dict(background="none", border="none", color=DIMTEXT,
-                               fontFamily=FONT, fontSize="18px", cursor="pointer",
-                               padding="4px 10px", lineHeight="1"),
+                    style=dict(
+                        background="none",
+                        border="none",
+                        color=DIMTEXT,
+                        fontFamily=FONT,
+                        fontSize="18px",
+                        cursor="pointer",
+                        padding="4px 10px",
+                        lineHeight="1",
+                    ),
                 ),
-                style=dict(backgroundColor=PANEL_BG,
-                           borderBottom=f"1px solid {BORDER}",
-                           padding="6px 10px", display="flex",
-                           justifyContent="flex-end"),
+                style=dict(
+                    backgroundColor=PANEL_BG,
+                    borderBottom=f"1px solid {BORDER}",
+                    padding="6px 10px",
+                    display="flex",
+                    justifyContent="flex-end",
+                ),
             ),
             html.Div(
                 id="panel-body",
-                style=dict(padding="12px 16px", overflowY="auto",
-                           flex="1", fontFamily=FONT, color=TEXT),
+                style=dict(padding="12px 16px", overflowY="auto", flex="1", fontFamily=FONT, color=TEXT),
             ),
         ],
         id="panel-container",
         style=dict(
-            width="0", display="flex", flexDirection="column",
-            backgroundColor=PANEL_BG, overflow="hidden",
+            width="0",
+            display="flex",
+            flexDirection="column",
+            backgroundColor=PANEL_BG,
+            overflow="hidden",
             transition="width 0.15s ease",
             minWidth="0",
         ),
@@ -404,11 +492,17 @@ def build(run: dict) -> html.Div:
     marks = {w: (str(w) if w in label_set else "") for w in all_weeks}
 
     _step_btn = dict(
-        background="none", border=f"1px solid {BORDER}",
-        color=DIMTEXT, fontFamily=FONT, fontSize="16px",
-        cursor="pointer", padding="0 10px",
-        alignSelf="center", lineHeight="1",
-        flexShrink="0", height="28px",
+        background="none",
+        border=f"1px solid {BORDER}",
+        color=DIMTEXT,
+        fontFamily=FONT,
+        fontSize="16px",
+        cursor="pointer",
+        padding="0 10px",
+        alignSelf="center",
+        lineHeight="1",
+        flexShrink="0",
+        height="28px",
     )
 
     timeline = html.Div(
@@ -418,19 +512,29 @@ def build(run: dict) -> html.Div:
                 id={"type": "panel-action", "action": json.dumps({"kind": "global"})},
                 n_clicks=0,
                 style=dict(
-                    background="none", border=f"1px solid {BORDER}",
-                    color=DIMTEXT, fontFamily=FONT, fontSize="11px",
-                    cursor="pointer", padding="4px 10px",
-                    letterSpacing="0.1em", whiteSpace="nowrap",
-                    alignSelf="center", marginRight="16px", flexShrink="0",
+                    background="none",
+                    border=f"1px solid {BORDER}",
+                    color=DIMTEXT,
+                    fontFamily=FONT,
+                    fontSize="11px",
+                    cursor="pointer",
+                    padding="4px 10px",
+                    letterSpacing="0.1em",
+                    whiteSpace="nowrap",
+                    alignSelf="center",
+                    marginRight="16px",
+                    flexShrink="0",
                 ),
             ),
             html.Button("◀", id="prev-week-btn", n_clicks=0, style=_step_btn),
             html.Div(
                 dcc.Slider(
                     id="timeline-slider",
-                    min=min_week, max=max_week, step=None,
-                    value=min_week, marks=marks,
+                    min=min_week,
+                    max=max_week,
+                    step=None,
+                    value=min_week,
+                    marks=marks,
                     tooltip={"placement": "top", "always_visible": True},
                     updatemode="drag",
                 ),
@@ -440,18 +544,27 @@ def build(run: dict) -> html.Div:
         ],
         id="timeline",
         style=dict(
-            display="flex", height="72px", padding="0 20px",
-            backgroundColor=BG, borderTop=f"1px solid {BORDER}",
-            alignItems="center", boxSizing="border-box", gap="4px",
+            display="flex",
+            height="72px",
+            padding="0 20px",
+            backgroundColor=BG,
+            borderTop=f"1px solid {BORDER}",
+            alignItems="center",
+            boxSizing="border-box",
+            gap="4px",
         ),
     )
 
     return html.Div(
         [header, main_area, timeline],
         style=dict(
-            display="flex", flexDirection="column",
-            height="100vh", backgroundColor=BG,
-            margin="0", padding="0", overflow="hidden",
+            display="flex",
+            flexDirection="column",
+            height="100vh",
+            backgroundColor=BG,
+            margin="0",
+            padding="0",
+            overflow="hidden",
             fontFamily=FONT,
         ),
     )

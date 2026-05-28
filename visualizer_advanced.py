@@ -13,13 +13,15 @@ Opens a Dash app at http://127.0.0.1:8052
 import argparse
 from pathlib import Path
 
-from visualizer import load_run, latest_run, make_app
+from visualizer import latest_run, load_run, make_app
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Advanced evolution simulator log visualiser")
     parser.add_argument(
-        "log_dir", nargs="?", default=None,
+        "log_dir",
+        nargs="?",
+        default=None,
         help="Path to a simulation log directory (default: most recent in simulation_logs/)",
     )
     parser.add_argument("--port", type=int, default=8052)

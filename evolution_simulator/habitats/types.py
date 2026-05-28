@@ -18,7 +18,7 @@ Wetlands, Alpine, Volcanic, Cave, Arctic, River, Savanna
 
 import numpy as np
 
-from ..habitat import Habitat, HABITAT_VECTOR_DIMS
+from ..habitat import HABITAT_VECTOR_DIMS, Habitat
 
 _INSTANCE_NOISE: float = 0.15  # default std of per-instance perturbation
 
@@ -57,9 +57,7 @@ class TypedHabitat(Habitat):
         super().__init_subclass__(**kwargs)
         # Compute and freeze the center vector for every concrete subclass
         if cls.TYPE_SEED != 0:
-            cls.CENTER = np.random.default_rng(cls.TYPE_SEED).standard_normal(
-                HABITAT_VECTOR_DIMS
-            )
+            cls.CENTER = np.random.default_rng(cls.TYPE_SEED).standard_normal(HABITAT_VECTOR_DIMS)
 
     def __init__(
         self,
@@ -111,20 +109,23 @@ class TypedHabitat(Habitat):
 # resources allow large populations, which ramp up crowding pressure.
 # ---------------------------------------------------------------------------
 
+
 class Desert(TypedHabitat):
     """Hot, arid desert. Water is scarce; food requires specialist adaptation."""
+
     TYPE_SEED = 1001
     TYPE_NAME = "Desert"
-    WATER_BASE_COST: float = 0.30        # high irreducible dehydration
+    WATER_BASE_COST: float = 0.30  # high irreducible dehydration
     WATER_EFFICIENCY_COST: float = 0.45  # efficiency helps but desert is still lethal
-    FOOD_ENERGY_COST: float = 0.30       # foraging requires more effort (scaled from 0.21)
-    FOOD_ENERGY_GAIN: float = 0.25       # sparse food patches
+    FOOD_ENERGY_COST: float = 0.30  # foraging requires more effort (scaled from 0.21)
+    FOOD_ENERGY_GAIN: float = 0.25  # sparse food patches
     PREDATION_ALPHA: float = 0.003
     POPULATION_SUPPORT: int = 120
 
 
 class Forest(TypedHabitat):
     """Temperate woodland. Balanced resources; moderate selection pressure."""
+
     TYPE_SEED = 1002
     TYPE_NAME = "Forest"
     # Uses Habitat defaults for resources — represents the baseline environment
@@ -134,16 +135,18 @@ class Forest(TypedHabitat):
 
 class Rainforest(TypedHabitat):
     """Tropical rainforest. Abundant food and water; intense competition."""
+
     TYPE_SEED = 1003
     TYPE_NAME = "Rainforest"
     FOOD_ENERGY_GAIN: float = 0.40
     WATER_HYDRATION_GAIN: float = 0.45
-    PREDATION_ALPHA: float = 0.015       # rich habitat → high density → more crowding pressure
+    PREDATION_ALPHA: float = 0.015  # rich habitat → high density → more crowding pressure
     POPULATION_SUPPORT: int = 600
 
 
 class Plains(TypedHabitat):
     """Open grassland. Easy movement; moderate resources."""
+
     TYPE_SEED = 1004
     TYPE_NAME = "Plains"
     WEEKLY_MIGRATION_BASE: float = 0.015  # flat terrain aids dispersal
@@ -153,10 +156,11 @@ class Plains(TypedHabitat):
 
 class Tundra(TypedHabitat):
     """Cold, sparse tundra. Food scarce; water from seasonal ice melt."""
+
     TYPE_SEED = 1005
     TYPE_NAME = "Tundra"
     FOOD_ENERGY_GAIN: float = 0.20
-    FOOD_ENERGY_COST: float = 0.30       # high metabolic cost in cold (scaled from 0.21)
+    FOOD_ENERGY_COST: float = 0.30  # high metabolic cost in cold (scaled from 0.21)
     WATER_HYDRATION_GAIN: float = 0.25
     PREDATION_ALPHA: float = 0.004
     POPULATION_SUPPORT: int = 150
@@ -164,35 +168,38 @@ class Tundra(TypedHabitat):
 
 class Ocean(TypedHabitat):
     """Open pelagic ocean. No water cost; food rewards specialist traits."""
+
     TYPE_SEED = 1006
     TYPE_NAME = "Ocean"
-    WATER_BASE_COST: float = 0.0         # surrounded by water
+    WATER_BASE_COST: float = 0.0  # surrounded by water
     WATER_EFFICIENCY_COST: float = 0.0
     WATER_HYDRATION_GAIN: float = 0.50
     FOOD_ENERGY_GAIN: float = 0.35
-    WEEKLY_MIGRATION_BASE: float = 0.02   # currents aid dispersal
+    WEEKLY_MIGRATION_BASE: float = 0.02  # currents aid dispersal
     PREDATION_ALPHA: float = 0.008
     POPULATION_SUPPORT: int = 300
 
 
 class CoralReef(TypedHabitat):
     """Shallow tropical reef. Very high productivity; tight specialist niche."""
+
     TYPE_SEED = 1007
     TYPE_NAME = "CoralReef"
     FOOD_ENERGY_GAIN: float = 0.45
     WATER_HYDRATION_GAIN: float = 0.50
-    WATER_BASE_COST: float = 0.0         # submerged — no water stress
+    WATER_BASE_COST: float = 0.0  # submerged — no water stress
     WATER_EFFICIENCY_COST: float = 0.0
-    PREDATION_ALPHA: float = 0.020       # tight niche → intense density competition
+    PREDATION_ALPHA: float = 0.020  # tight niche → intense density competition
     POPULATION_SUPPORT: int = 400
 
 
 class Wetlands(TypedHabitat):
     """Swamps and marshes. Abundant water; moderate food."""
+
     TYPE_SEED = 1008
     TYPE_NAME = "Wetlands"
     WATER_HYDRATION_GAIN: float = 0.45
-    WATER_BASE_COST: float = 0.04        # minimal — mostly submerged but not zero
+    WATER_BASE_COST: float = 0.04  # minimal — mostly submerged but not zero
     WATER_EFFICIENCY_COST: float = 0.06
     PREDATION_ALPHA: float = 0.012
     POPULATION_SUPPORT: int = 500
@@ -200,23 +207,25 @@ class Wetlands(TypedHabitat):
 
 class Alpine(TypedHabitat):
     """High-altitude mountain. Thin air; scarce food; migration is hard."""
+
     TYPE_SEED = 1009
     TYPE_NAME = "Alpine"
     FOOD_ENERGY_GAIN: float = 0.18
-    FOOD_ENERGY_COST: float = 0.35       # high-altitude exertion (scaled from 0.24)
+    FOOD_ENERGY_COST: float = 0.35  # high-altitude exertion (scaled from 0.24)
     WEEKLY_MIGRATION_BASE: float = 0.005  # rugged terrain limits movement
-    PREDATION_ALPHA: float = 0.002       # sparse population → low density pressure
+    PREDATION_ALPHA: float = 0.002  # sparse population → low density pressure
     POPULATION_SUPPORT: int = 80
 
 
 class Volcanic(TypedHabitat):
     """Geothermal volcanic zone. Extreme environment; very high mortality pressure."""
+
     TYPE_SEED = 1010
     TYPE_NAME = "Volcanic"
     FOOD_ENERGY_GAIN: float = 0.22
-    FOOD_ENERGY_COST: float = 0.35       # extreme exertion (scaled from 0.24)
+    FOOD_ENERGY_COST: float = 0.35  # extreme exertion (scaled from 0.24)
     WATER_HYDRATION_GAIN: float = 0.20
-    WATER_BASE_COST: float = 0.27        # high evaporative loss from geothermal heat
+    WATER_BASE_COST: float = 0.27  # high evaporative loss from geothermal heat
     WATER_EFFICIENCY_COST: float = 0.40
     WEEKLY_MIGRATION_BASE: float = 0.005  # inhospitable terrain
     PREDATION_ALPHA: float = 0.001
@@ -225,10 +234,11 @@ class Volcanic(TypedHabitat):
 
 class Cave(TypedHabitat):
     """Underground cave system. No light; very scarce resources."""
+
     TYPE_SEED = 1011
     TYPE_NAME = "Cave"
     FOOD_ENERGY_GAIN: float = 0.15
-    WATER_HYDRATION_GAIN: float = 0.30   # underground water sources
+    WATER_HYDRATION_GAIN: float = 0.30  # underground water sources
     WEEKLY_MIGRATION_BASE: float = 0.003  # difficult to navigate
     PREDATION_ALPHA: float = 0.002
     POPULATION_SUPPORT: int = 80
@@ -236,10 +246,11 @@ class Cave(TypedHabitat):
 
 class Arctic(TypedHabitat):
     """Polar ice sheet. Extreme cold; low food; water from melt."""
+
     TYPE_SEED = 1012
     TYPE_NAME = "Arctic"
     FOOD_ENERGY_GAIN: float = 0.15
-    FOOD_ENERGY_COST: float = 0.35       # extreme cold metabolic cost (scaled from 0.24)
+    FOOD_ENERGY_COST: float = 0.35  # extreme cold metabolic cost (scaled from 0.24)
     WATER_HYDRATION_GAIN: float = 0.35
     PREDATION_ALPHA: float = 0.001
     POPULATION_SUPPORT: int = 60
@@ -247,10 +258,11 @@ class Arctic(TypedHabitat):
 
 class River(TypedHabitat):
     """Freshwater river. Abundant water; good food for adapted creatures."""
+
     TYPE_SEED = 1013
     TYPE_NAME = "River"
     WATER_HYDRATION_GAIN: float = 0.45
-    WATER_BASE_COST: float = 0.07        # low — water is near but creatures must reach it
+    WATER_BASE_COST: float = 0.07  # low — water is near but creatures must reach it
     WATER_EFFICIENCY_COST: float = 0.10
     WEEKLY_MIGRATION_BASE: float = 0.015  # currents aid movement
     PREDATION_ALPHA: float = 0.010
@@ -259,10 +271,11 @@ class River(TypedHabitat):
 
 class Savanna(TypedHabitat):
     """Dry tropical grassland. Seasonal water stress; easy movement."""
+
     TYPE_SEED = 1014
     TYPE_NAME = "Savanna"
     FOOD_ENERGY_GAIN: float = 0.28
-    WATER_BASE_COST: float = 0.24        # dry season water stress
+    WATER_BASE_COST: float = 0.24  # dry season water stress
     WATER_EFFICIENCY_COST: float = 0.33
     WEEKLY_MIGRATION_BASE: float = 0.012
     PREDATION_ALPHA: float = 0.008

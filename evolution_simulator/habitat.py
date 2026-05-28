@@ -1,7 +1,8 @@
 import uuid
 from collections import deque
+from typing import TYPE_CHECKING
+
 import numpy as np
-from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from .creature import Creature
@@ -33,23 +34,45 @@ HABITAT_VECTOR_DIMS = 500
 # ranges (fecundity 1-8, metabolism 0.5-2.0, etc.) for interpretability.
 LOGGED_TRAITS: tuple[str, ...] = (
     # Reproduction
-    "fecundity", "reproduction_time", "weeks_to_sexual_viability",
-    "parental_investment", "reproduction_likelihood",
+    "fecundity",
+    "reproduction_time",
+    "weeks_to_sexual_viability",
+    "parental_investment",
+    "reproduction_likelihood",
     # Survival / physiology
-    "metabolism", "water_efficiency", "max_lifespan",
-    "disease_resistance", "immune_response", "stress_tolerance",
+    "metabolism",
+    "water_efficiency",
+    "max_lifespan",
+    "disease_resistance",
+    "immune_response",
+    "stress_tolerance",
     # Environmental adaptation
-    "heat_tolerance", "cold_tolerance", "drought_tolerance", "hibernation_tendency",
+    "heat_tolerance",
+    "cold_tolerance",
+    "drought_tolerance",
+    "hibernation_tendency",
     # Movement / behaviour
-    "migration_likelihood", "risk_tolerance", "aggression",
-    "territorial", "social_tendency", "nocturnal_tendency",
+    "migration_likelihood",
+    "risk_tolerance",
+    "aggression",
+    "territorial",
+    "social_tendency",
+    "nocturnal_tendency",
     # Physical
-    "size", "strength", "speed", "camouflage",
+    "size",
+    "strength",
+    "speed",
+    "camouflage",
     # Cognitive / ecological
-    "foraging_ability", "intelligence", "adaptability",
-    "pack_hunting", "scavenging_tendency", "communication",
+    "foraging_ability",
+    "intelligence",
+    "adaptability",
+    "pack_hunting",
+    "scavenging_tendency",
+    "communication",
     # Genetics
-    "mutation_rate", "selectivity",
+    "mutation_rate",
+    "selectivity",
     # Predation vulnerability (new)
     "base_predation_rate",
 )
@@ -68,40 +91,40 @@ _TRAIT_INTERNAL_KEY: dict[str, str] = {t: t for t in LOGGED_TRAITS}
 # is_int=True means floor-truncation is applied per-creature before averaging,
 # matching int(offset + scale * raw) rather than the incorrect int(mean).
 _TRAIT_SCALING: dict[str, tuple] = {
-    "fecundity":                 (1.0,   7.0,   False),
-    "reproduction_time":         (1.0,   19.0,  True),
-    "weeks_to_sexual_viability": (4.0,   46.0,  True),
-    "parental_investment":       (0.0,   1.0,   False),
-    "reproduction_likelihood":   (0.0,   1.0,   False),
-    "metabolism":                (0.5,   1.5,   False),
-    "water_efficiency":          (0.0,   1.0,   False),
-    "max_lifespan":              (40.0,  360.0, True),
-    "disease_resistance":        (0.0,   1.0,   False),
-    "immune_response":           (0.0,   1.0,   False),
-    "stress_tolerance":          (0.0,   1.0,   False),
-    "heat_tolerance":            (0.0,   1.0,   False),
-    "cold_tolerance":            (0.0,   1.0,   False),
-    "drought_tolerance":         (0.0,   1.0,   False),
-    "hibernation_tendency":      (0.0,   1.0,   False),
-    "migration_likelihood":      (0.0,   1.0,   False),
-    "risk_tolerance":            (0.0,   1.0,   False),
-    "aggression":                (0.0,   1.0,   False),
-    "territorial":               (0.0,   1.0,   False),
-    "social_tendency":           (0.0,   1.0,   False),
-    "nocturnal_tendency":        (0.0,   1.0,   False),
-    "size":                      (0.0,   1.0,   False),
-    "strength":                  (0.0,   1.0,   False),
-    "speed":                     (0.0,   1.0,   False),
-    "camouflage":                (0.0,   1.0,   False),
-    "foraging_ability":          (0.0,   1.0,   False),
-    "intelligence":              (0.0,   1.0,   False),
-    "adaptability":              (0.0,   1.0,   False),
-    "pack_hunting":              (0.0,   1.0,   False),
-    "scavenging_tendency":       (0.0,   1.0,   False),
-    "communication":             (0.0,   1.0,   False),
-    "mutation_rate":             (0.001, 0.049, False),
-    "selectivity":               (0.0,   1.0,   False),
-    "base_predation_rate":       (0.0,   0.005, False),
+    "fecundity": (1.0, 7.0, False),
+    "reproduction_time": (1.0, 19.0, True),
+    "weeks_to_sexual_viability": (4.0, 46.0, True),
+    "parental_investment": (0.0, 1.0, False),
+    "reproduction_likelihood": (0.0, 1.0, False),
+    "metabolism": (0.5, 1.5, False),
+    "water_efficiency": (0.0, 1.0, False),
+    "max_lifespan": (40.0, 360.0, True),
+    "disease_resistance": (0.0, 1.0, False),
+    "immune_response": (0.0, 1.0, False),
+    "stress_tolerance": (0.0, 1.0, False),
+    "heat_tolerance": (0.0, 1.0, False),
+    "cold_tolerance": (0.0, 1.0, False),
+    "drought_tolerance": (0.0, 1.0, False),
+    "hibernation_tendency": (0.0, 1.0, False),
+    "migration_likelihood": (0.0, 1.0, False),
+    "risk_tolerance": (0.0, 1.0, False),
+    "aggression": (0.0, 1.0, False),
+    "territorial": (0.0, 1.0, False),
+    "social_tendency": (0.0, 1.0, False),
+    "nocturnal_tendency": (0.0, 1.0, False),
+    "size": (0.0, 1.0, False),
+    "strength": (0.0, 1.0, False),
+    "speed": (0.0, 1.0, False),
+    "camouflage": (0.0, 1.0, False),
+    "foraging_ability": (0.0, 1.0, False),
+    "intelligence": (0.0, 1.0, False),
+    "adaptability": (0.0, 1.0, False),
+    "pack_hunting": (0.0, 1.0, False),
+    "scavenging_tendency": (0.0, 1.0, False),
+    "communication": (0.0, 1.0, False),
+    "mutation_rate": (0.001, 0.049, False),
+    "selectivity": (0.0, 1.0, False),
+    "base_predation_rate": (0.0, 0.005, False),
 }
 
 
@@ -131,15 +154,15 @@ def _batch_compute_traits(creatures: list) -> np.ndarray:
         indices = cls.TRAIT_GENE_INDICES[key]
         k = len(indices)
 
-        vals = gene_matrix[:, indices]                 # (N, k)
+        vals = gene_matrix[:, indices]  # (N, k)
         sorted_vals = np.sort(vals, axis=1)[:, ::-1]  # descending per row
 
         i_arr = np.arange(k, dtype=np.float64)
         weights = alpha * (1.0 - alpha) ** i_arr
         weights /= weights.sum()
 
-        raw = sorted_vals @ weights                    # (N,)
-        sigmoid_vals = 1.0 / (1.0 + np.exp(-raw))     # (N,) ∈ [0, 1]
+        raw = sorted_vals @ weights  # (N,)
+        sigmoid_vals = 1.0 / (1.0 + np.exp(-raw))  # (N,) ∈ [0, 1]
 
         offset, scale, is_int = _TRAIT_SCALING[trait]
         scaled = offset + scale * sigmoid_vals
@@ -151,15 +174,15 @@ def _batch_compute_traits(creatures: list) -> np.ndarray:
 
 
 DEFAULT_FOOD_GENE_INDICES: list[int] = (
-    list(range(37, 80))     # foraging ability, water efficiency, intelligence loci
-    + list(range(110, 170)) # size, strength, speed, physiology loci
-    + list(range(230, 285)) # broad genomic coverage
+    list(range(37, 80))  # foraging ability, water efficiency, intelligence loci
+    + list(range(110, 170))  # size, strength, speed, physiology loci
+    + list(range(230, 285))  # broad genomic coverage
 )  # 168 total indices
 
 DEFAULT_WATER_GENE_INDICES: list[int] = (
-    list(range(38, 78))     # water efficiency, drought tolerance loci
-    + list(range(115, 175)) # immune, stress, environmental adaptation loci
-    + list(range(270, 345)) # broad genomic coverage
+    list(range(38, 78))  # water efficiency, drought tolerance loci
+    + list(range(115, 175))  # immune, stress, environmental adaptation loci
+    + list(range(270, 345))  # broad genomic coverage
 )  # 175 total indices
 
 
@@ -264,8 +287,8 @@ def _gale_shapley(
     male_prefs: list[list[int]] = []
     for i in range(M):
         eligible_mask = (
-            (score_matrix[i] >= male_thresholds[i]) &   # male's own floor
-            (score_matrix[i] >= female_thresholds)       # female's own floor
+            (score_matrix[i] >= male_thresholds[i])  # male's own floor
+            & (score_matrix[i] >= female_thresholds)  # female's own floor
         )
         eligible_indices = np.where(eligible_mask)[0]
         if eligible_indices.size == 0:
@@ -280,8 +303,8 @@ def _gale_shapley(
     #                     female who has already rejected him.
     # male_partner[i]   : current female partner index, or -1 if unmatched.
     # female_partner[j] : current male partner index, or -1 if free.
-    male_next:      list[int] = [0] * M
-    male_partner:   list[int] = [-1] * M
+    male_next: list[int] = [0] * M
+    male_partner: list[int] = [-1] * M
     female_partner: list[int] = [-1] * F
 
     # Seed the free queue with every male who has at least one candidate.
@@ -381,7 +404,7 @@ class Habitat:
     # Raised from 0.15 to create a real metabolic tradeoff: high-metabolism creatures
     # (≈1.73 for random genes) face barely-positive drift at p_food=0.5, and negative
     # drift at max metabolism (2.0). Low-metabolism creatures remain comfortable.
-    FOOD_ENERGY_COST: float = 0.22   # multiplied by creature.metabolism
+    FOOD_ENERGY_COST: float = 0.22  # multiplied by creature.metabolism
     # Lowered from 0.30 to tip unadapted creatures into slightly negative water drift,
     # making water a genuine survival pressure rather than a free stat.
     WATER_HYDRATION_GAIN: float = 0.26
@@ -413,10 +436,10 @@ class Habitat:
 
     def __init__(
         self,
-        vector: Optional[np.ndarray] = None,
-        name: Optional[str] = None,
-        habitat_id: Optional[str] = None,
-        population_support: Optional[int] = None,
+        vector: np.ndarray | None = None,
+        name: str | None = None,
+        habitat_id: str | None = None,
+        population_support: int | None = None,
     ):
         """
         Parameters
@@ -432,14 +455,13 @@ class Habitat:
         if vector is not None:
             if np.asarray(vector).shape != (HABITAT_VECTOR_DIMS,):
                 raise ValueError(
-                    f"Habitat vector must have shape ({HABITAT_VECTOR_DIMS},), "
-                    f"got {np.asarray(vector).shape}"
+                    f"Habitat vector must have shape ({HABITAT_VECTOR_DIMS},), got {np.asarray(vector).shape}"
                 )
             self.vector: np.ndarray = np.asarray(vector, dtype=float)
         else:
             self.vector = np.random.randn(HABITAT_VECTOR_DIMS)
 
-        self.name: Optional[str] = name
+        self.name: str | None = name
         self.habitat_id: str = habitat_id or str(uuid.uuid4())
         if population_support is not None:
             self.POPULATION_SUPPORT = population_support
@@ -505,9 +527,7 @@ class Habitat:
         if bidirectional:
             other._neighbors[self.habitat_id] = {"habitat": self, "passable": passable}
 
-    def block_migration_to(
-        self, other: "Habitat", bidirectional: bool = False
-    ) -> None:
+    def block_migration_to(self, other: "Habitat", bidirectional: bool = False) -> None:
         """
         Block migration between this habitat and *other*.
 
@@ -519,9 +539,7 @@ class Habitat:
         if bidirectional and self.habitat_id in other._neighbors:
             other._neighbors[self.habitat_id]["passable"] = False
 
-    def open_migration_to(
-        self, other: "Habitat", bidirectional: bool = False
-    ) -> None:
+    def open_migration_to(self, other: "Habitat", bidirectional: bool = False) -> None:
         """Re-open a previously blocked migration route."""
         if other.habitat_id in self._neighbors:
             self._neighbors[other.habitat_id]["passable"] = True
@@ -530,11 +548,7 @@ class Habitat:
 
     def passable_neighbors(self) -> list["Habitat"]:
         """Return neighbour habitats that creatures can currently migrate to."""
-        return [
-            info["habitat"]
-            for info in self._neighbors.values()
-            if info["passable"]
-        ]
+        return [info["habitat"] for info in self._neighbors.values() if info["passable"]]
 
     def is_neighbor(self, other: "Habitat") -> bool:
         """True if *other* is registered as a neighbour (passable or not)."""
@@ -593,7 +607,7 @@ class Habitat:
 
         Computed entirely via numpy for O(N·K) efficiency with no Python loop.
         """
-        dots: np.ndarray = gene_matrix @ habitat_vec                      # (N,)
+        dots: np.ndarray = gene_matrix @ habitat_vec  # (N,)
         creature_norms: np.ndarray = np.linalg.norm(gene_matrix, axis=1)  # (N,)
         habitat_norm: float = float(np.linalg.norm(habitat_vec))
 
@@ -651,7 +665,7 @@ class Habitat:
         np.random.shuffle(viable_males)
         np.random.shuffle(viable_females)
         mating_events: list[dict] = []
-        for male, female in zip(viable_males, viable_females):
+        for male, female in zip(viable_males, viable_females, strict=False):
             event = self._attempt_mating(male, female)
             mating_events.append(event)
         return mating_events
@@ -695,7 +709,7 @@ class Habitat:
             sp_females = females_by_species.get(sp, [])
             np.random.shuffle(sp_males)
             np.random.shuffle(sp_females)
-            for male, female in zip(sp_males, sp_females):
+            for male, female in zip(sp_males, sp_females, strict=False):
                 event = self._attempt_mating(male, female)
                 mating_events.append(event)
             # Surplus individuals go to spillover
@@ -706,7 +720,7 @@ class Habitat:
         # Cross-species hybridisation pass on leftovers
         np.random.shuffle(spillover_males)
         np.random.shuffle(spillover_females)
-        for male, female in zip(spillover_males, spillover_females):
+        for male, female in zip(spillover_males, spillover_females, strict=False):
             event = self._attempt_mating(male, female)
             mating_events.append(event)
 
@@ -722,15 +736,16 @@ class Habitat:
         Shared by weighted-sampling and stable-matching mating strategies.
         """
         from .creature import DEFAULT_TRAIT_GENE_INDICES
+
         indices = DEFAULT_TRAIT_GENE_INDICES["compatibility_genes"]
 
-        male_mat = np.stack([m.genes[indices] for m in males])     # (M, 245)
-        female_mat = np.stack([f.genes[indices] for f in females]) # (F, 245)
+        male_mat = np.stack([m.genes[indices] for m in males])  # (M, 245)
+        female_mat = np.stack([f.genes[indices] for f in females])  # (F, 245)
 
         dots = male_mat @ female_mat.T  # (M, F)
 
-        male_norms = np.linalg.norm(male_mat, axis=1, keepdims=True)    # (M, 1)
-        female_norms = np.linalg.norm(female_mat, axis=1, keepdims=True) # (F, 1)
+        male_norms = np.linalg.norm(male_mat, axis=1, keepdims=True)  # (M, 1)
+        female_norms = np.linalg.norm(female_mat, axis=1, keepdims=True)  # (F, 1)
         denom = male_norms @ female_norms.T  # (M, F)
 
         safe = denom > 1e-10
@@ -787,7 +802,7 @@ class Habitat:
             # Per-pair sharpness: average selectivity of the specific male + this female
             sel_m = male_selectivities[available_males]
             sharpness = 1.0 + self.MATING_SHARPNESS_K * (sel_m + female.selectivity) / 2.0
-            weights = above ** sharpness
+            weights = above**sharpness
 
             total = weights.sum()
             if total == 0.0:
@@ -836,14 +851,12 @@ class Habitat:
         # Per-creature thresholds mirror the formula in is_compatible(), but use
         # each creature's OWN selectivity rather than the pair average.  See
         # _gale_shapley assumption 5 for the implications of this asymmetry.
-        male_thresholds = np.array([
-            _Creature.COMPATIBILITY_FLOOR + 0.15 * m.selectivity
-            for m in viable_males
-        ])
-        female_thresholds = np.array([
-            _Creature.COMPATIBILITY_FLOOR + 0.15 * f.selectivity
-            for f in viable_females
-        ])
+        male_thresholds = np.array(
+            [_Creature.COMPATIBILITY_FLOOR + 0.15 * m.selectivity for m in viable_males]
+        )
+        female_thresholds = np.array(
+            [_Creature.COMPATIBILITY_FLOOR + 0.15 * f.selectivity for f in viable_females]
+        )
 
         pairs = _gale_shapley(score_matrix, male_thresholds, female_thresholds)
 
@@ -958,13 +971,10 @@ class Habitat:
 
             # --- Hydration ---
             if water_found[i]:
-                creature.hydration = min(
-                    1.0, creature.hydration + self.WATER_HYDRATION_GAIN
-                )
+                creature.hydration = min(1.0, creature.hydration + self.WATER_HYDRATION_GAIN)
             else:
-                water_cost = (
-                    self.WATER_BASE_COST
-                    + self.WATER_EFFICIENCY_COST * (1.0 - creature.water_efficiency)
+                water_cost = self.WATER_BASE_COST + self.WATER_EFFICIENCY_COST * (
+                    1.0 - creature.water_efficiency
                 )
                 creature.hydration = max(0.0, creature.hydration - water_cost)
 
@@ -1026,16 +1036,11 @@ class Habitat:
         # ------------------------------------------------------------------
         # 9. Mating
         # ------------------------------------------------------------------
-        viable_males = [
-            c for c in self._creatures
-            if c.is_alive and c.sex == "male" and c.is_sexually_viable
-        ]
+        viable_males = [c for c in self._creatures if c.is_alive and c.sex == "male" and c.is_sexually_viable]
         viable_females = [
-            c for c in self._creatures
-            if c.is_alive
-            and c.sex == "female"
-            and c.is_sexually_viable
-            and not c.is_pregnant
+            c
+            for c in self._creatures
+            if c.is_alive and c.sex == "female" and c.is_sexually_viable and not c.is_pregnant
         ]
 
         if mating_strategy == "species_priority":
@@ -1106,9 +1111,7 @@ class Habitat:
         # Batch-compute all scaled trait values and generations for the full
         # alive population at once, then slice per-species with index arrays.
         trait_matrix = _batch_compute_traits(alive)  # (N, len(LOGGED_TRAITS))
-        generations = np.fromiter(
-            (c.generation for c in alive), dtype=np.float64, count=len(alive)
-        )
+        generations = np.fromiter((c.generation for c in alive), dtype=np.float64, count=len(alive))
 
         species_indices: dict[str, list[int]] = {}
         for i, c in enumerate(alive):
@@ -1121,13 +1124,10 @@ class Habitat:
             sp_means = trait_matrix[idx_arr].mean(axis=0)  # (len(LOGGED_TRAITS),)
             stats[sp_name] = {
                 "count": n,
-                "mean_food_prob":  round(float(food_probs[idx_arr].mean()),  4),
+                "mean_food_prob": round(float(food_probs[idx_arr].mean()), 4),
                 "mean_water_prob": round(float(water_probs[idx_arr].mean()), 4),
                 "mean_generation": round(float(generations[idx_arr].mean()), 2),
-                "mean_traits": {
-                    t: round(float(sp_means[j]), 4)
-                    for j, t in enumerate(LOGGED_TRAITS)
-                },
+                "mean_traits": {t: round(float(sp_means[j]), 4) for j, t in enumerate(LOGGED_TRAITS)},
             }
 
         return stats

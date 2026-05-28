@@ -1,11 +1,26 @@
-from .creature import Creature, DEFAULT_TRAIT_GENE_INDICES, GENE_DIMS
-from .habitat import Habitat, DEFAULT_FOOD_GENE_INDICES, DEFAULT_WATER_GENE_INDICES
-from .habitats import (
-    TypedHabitat,
-    Desert, Forest, Rainforest, Plains, Tundra,
-    Ocean, CoralReef, Wetlands, Alpine, Volcanic,
-    Cave, Arctic, River, Savanna,
-    HABITAT_TYPE_REGISTRY,
-)
-from .species import SpeciesRegistry, ADJECTIVES, NOUNS
-from .simulation import SimulationRunner
+from .creature import DEFAULT_TRAIT_GENE_INDICES as DEFAULT_TRAIT_GENE_INDICES
+from .creature import GENE_DIMS as GENE_DIMS
+from .creature import Creature as Creature
+from .habitat import DEFAULT_FOOD_GENE_INDICES as DEFAULT_FOOD_GENE_INDICES
+from .habitat import DEFAULT_WATER_GENE_INDICES as DEFAULT_WATER_GENE_INDICES
+from .habitat import Habitat as Habitat
+from .habitats import HABITAT_TYPE_REGISTRY as HABITAT_TYPE_REGISTRY
+from .habitats import Alpine as Alpine
+from .habitats import Arctic as Arctic
+from .habitats import Cave as Cave
+from .habitats import CoralReef as CoralReef
+from .habitats import Desert as Desert
+from .habitats import Forest as Forest
+from .habitats import Ocean as Ocean
+from .habitats import Plains as Plains
+from .habitats import Rainforest as Rainforest
+from .habitats import River as River
+from .habitats import Savanna as Savanna
+from .habitats import Tundra as Tundra
+from .habitats import TypedHabitat as TypedHabitat
+from .habitats import Volcanic as Volcanic
+from .habitats import Wetlands as Wetlands
+from .simulation import SimulationRunner as SimulationRunner
+from .species import ADJECTIVES as ADJECTIVES
+from .species import NOUNS as NOUNS
+from .species import SpeciesRegistry as SpeciesRegistry

@@ -1,11 +1,12 @@
 import numpy as np
 import pytest
-from evolution_simulator.creature import Creature, DEFAULT_TRAIT_GENE_INDICES, GENE_DIMS
 
+from evolution_simulator.creature import DEFAULT_TRAIT_GENE_INDICES, GENE_DIMS, Creature
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def creature():
@@ -38,6 +39,7 @@ def family(founder_pair):
 # Gene vector
 # ---------------------------------------------------------------------------
 
+
 class TestGenes:
     def test_default_genes_shape(self):
         c = Creature()
@@ -60,6 +62,7 @@ class TestGenes:
 # ---------------------------------------------------------------------------
 # Trait computation
 # ---------------------------------------------------------------------------
+
 
 class TestTraitComputation:
     def test_all_traits_in_range(self, creature):
@@ -108,6 +111,7 @@ class TestTraitComputation:
 # Scaled trait properties
 # ---------------------------------------------------------------------------
 
+
 class TestTraitProperties:
     def test_fecundity_range(self, creature):
         assert 1.0 <= creature.fecundity <= 8.0
@@ -146,17 +150,38 @@ class TestTraitProperties:
         _ = creature.metabolism
         assert "metabolism" in creature._trait_cache
 
-    @pytest.mark.parametrize("trait", [
-        "parental_investment", "aggression", "migration_likelihood",
-        "territorial", "social_tendency", "pack_hunting",
-        "scavenging_tendency", "nocturnal_tendency", "risk_tolerance",
-        "size", "strength", "speed", "camouflage", "foraging_ability",
-        "water_efficiency", "disease_resistance", "immune_response",
-        "stress_tolerance", "heat_tolerance", "cold_tolerance",
-        "drought_tolerance", "hibernation_tendency", "intelligence",
-        "adaptability", "communication", "selectivity",
-        "reproduction_likelihood",
-    ])
+    @pytest.mark.parametrize(
+        "trait",
+        [
+            "parental_investment",
+            "aggression",
+            "migration_likelihood",
+            "territorial",
+            "social_tendency",
+            "pack_hunting",
+            "scavenging_tendency",
+            "nocturnal_tendency",
+            "risk_tolerance",
+            "size",
+            "strength",
+            "speed",
+            "camouflage",
+            "foraging_ability",
+            "water_efficiency",
+            "disease_resistance",
+            "immune_response",
+            "stress_tolerance",
+            "heat_tolerance",
+            "cold_tolerance",
+            "drought_tolerance",
+            "hibernation_tendency",
+            "intelligence",
+            "adaptability",
+            "communication",
+            "selectivity",
+            "reproduction_likelihood",
+        ],
+    )
     def test_unit_trait_in_range(self, creature, trait):
         val = getattr(creature, trait)
         assert 0.0 <= val <= 1.0, f"{trait} = {val}"
@@ -165,6 +190,7 @@ class TestTraitProperties:
 # ---------------------------------------------------------------------------
 # Identity
 # ---------------------------------------------------------------------------
+
 
 class TestIdentity:
     def test_unique_ids(self):
@@ -182,6 +208,7 @@ class TestIdentity:
 # ---------------------------------------------------------------------------
 # Lineage
 # ---------------------------------------------------------------------------
+
 
 class TestLineage:
     def test_no_parents_by_default(self):
@@ -229,6 +256,7 @@ class TestLineage:
 # Initial state
 # ---------------------------------------------------------------------------
 
+
 class TestInitialState:
     def test_starts_alive(self, creature):
         assert creature.is_alive is True
@@ -261,6 +289,7 @@ class TestInitialState:
 # ---------------------------------------------------------------------------
 # simulate_week
 # ---------------------------------------------------------------------------
+
 
 class TestSimulateDay:
     def test_age_increments(self, creature):
@@ -343,6 +372,7 @@ class TestSimulateDay:
 # Reproduction
 # ---------------------------------------------------------------------------
 
+
 def _make_opposite_sex_pair(genes: np.ndarray):
     """
     Return (male, female) built from the same gene vector with sex set directly.
@@ -363,6 +393,7 @@ def compatible_pair():
     threshold is easy to exceed.
     """
     from evolution_simulator.creature import DEFAULT_TRAIT_GENE_INDICES
+
     rng = np.random.default_rng(123)
     base_genes = rng.standard_normal(GENE_DIMS)
 
@@ -372,7 +403,7 @@ def compatible_pair():
 
     # Push fertility high so compatible encounters reliably result in conception
     rl_idx = DEFAULT_TRAIT_GENE_INDICES["reproduction_likelihood"]
-    base_genes[rl_idx] = 10.0   # reproduction_likelihood ≈ 1
+    base_genes[rl_idx] = 10.0  # reproduction_likelihood ≈ 1
 
     male, female = _make_opposite_sex_pair(base_genes)
 
@@ -495,11 +526,12 @@ class TestReproduce:
         """Every child gene locus must equal one of the two parents' values
         (before any mutation).  We verify this by zeroing mutation rate."""
         from evolution_simulator.creature import DEFAULT_TRAIT_GENE_INDICES
+
         male, female = compatible_pair
 
         # Suppress mutations so we can check parent inheritance cleanly
         mut_idx = DEFAULT_TRAIT_GENE_INDICES["mutation_rate"]
-        male.genes[mut_idx] = -100.0    # mutation_rate ≈ 0
+        male.genes[mut_idx] = -100.0  # mutation_rate ≈ 0
         female.genes[mut_idx] = -100.0
 
         np.random.seed(0)
@@ -508,8 +540,7 @@ class TestReproduce:
         child = litter[0]
         for i in range(GENE_DIMS):
             assert child.genes[i] in (male.genes[i], female.genes[i]), (
-                f"Gene {i}: child={child.genes[i]}, "
-                f"male={male.genes[i]}, female={female.genes[i]}"
+                f"Gene {i}: child={child.genes[i]}, male={male.genes[i]}, female={female.genes[i]}"
             )
 
     def test_all_children_have_both_parents(self, compatible_pair):
@@ -524,6 +555,7 @@ class TestReproduce:
         male, female = compatible_pair
         # Force high fecundity to guarantee multiple siblings
         from evolution_simulator.creature import DEFAULT_TRAIT_GENE_INDICES
+
         fec_idx = DEFAULT_TRAIT_GENE_INDICES["fecundity"]
         male.genes[fec_idx] = 10.0
         female.genes[fec_idx] = 10.0
@@ -532,10 +564,7 @@ class TestReproduce:
         litter = male.reproduce(female)
         assert len(litter) >= 2
         # At least one pair of siblings must differ at some locus
-        any_differ = any(
-            not np.array_equal(litter[0].genes, litter[j].genes)
-            for j in range(1, len(litter))
-        )
+        any_differ = any(not np.array_equal(litter[0].genes, litter[j].genes) for j in range(1, len(litter)))
         assert any_differ
 
     def test_female_becomes_pregnant(self, compatible_pair):
@@ -562,9 +591,10 @@ class TestReproduce:
     def test_mutation_can_alter_gene(self, compatible_pair):
         """With mutation rate forced high, child genes will differ from parents."""
         from evolution_simulator.creature import DEFAULT_TRAIT_GENE_INDICES
+
         male, female = compatible_pair
         mut_idx = DEFAULT_TRAIT_GENE_INDICES["mutation_rate"]
-        male.genes[mut_idx] = 100.0     # mutation_rate ≈ max (0.05)
+        male.genes[mut_idx] = 100.0  # mutation_rate ≈ max (0.05)
         female.genes[mut_idx] = 100.0
 
         np.random.seed(42)
@@ -572,10 +602,7 @@ class TestReproduce:
         assert len(litter) >= 1
         child = litter[0]
         # With ~5% mutation rate across 500 genes, ~25 loci should differ
-        differs = sum(
-            child.genes[i] not in (male.genes[i], female.genes[i])
-            for i in range(GENE_DIMS)
-        )
+        differs = sum(child.genes[i] not in (male.genes[i], female.genes[i]) for i in range(GENE_DIMS))
         assert differs > 0
 
     def test_mutation_rate_property_in_range(self, compatible_pair):
@@ -594,15 +621,18 @@ class TestReproduce:
     def test_low_fertility_blocks_conception(self, compatible_pair):
         """With reproduction_likelihood forced to zero, no offspring are produced."""
         from evolution_simulator.creature import DEFAULT_TRAIT_GENE_INDICES
+
         male, female = compatible_pair
         rl_idx = DEFAULT_TRAIT_GENE_INDICES["reproduction_likelihood"]
-        male.genes[rl_idx] = -100.0   # reproduction_likelihood ≈ 0
+        male.genes[rl_idx] = -100.0  # reproduction_likelihood ≈ 0
         female.genes[rl_idx] = -100.0
         female.is_pregnant = False
         female._pending_offspring = []
         # Run many attempts — all should fail with near-zero fertility
-        results = [male.reproduce(female) or female.is_pregnant for _ in range(20)
-                   if not female.is_pregnant]
+        for _ in range(20):
+            if female.is_pregnant:
+                break
+            male.reproduce(female)
         # At least some attempts should have been blocked (empty litter)
         # (fertility ≈ sigmoid(-100) ≈ 0, so chance of any succeeding is ~0)
         assert not female.is_pregnant or True  # ensure no crash
@@ -610,9 +640,10 @@ class TestReproduce:
     def test_high_fertility_allows_conception(self, compatible_pair):
         """With reproduction_likelihood forced high, conception should succeed."""
         from evolution_simulator.creature import DEFAULT_TRAIT_GENE_INDICES
+
         male, female = compatible_pair
         rl_idx = DEFAULT_TRAIT_GENE_INDICES["reproduction_likelihood"]
-        male.genes[rl_idx] = 100.0   # reproduction_likelihood ≈ 1
+        male.genes[rl_idx] = 100.0  # reproduction_likelihood ≈ 1
         female.genes[rl_idx] = 100.0
         female.is_pregnant = False
         female._pending_offspring = []
@@ -646,6 +677,7 @@ class TestSpeciesInheritance:
 # ---------------------------------------------------------------------------
 # Species subclass (demonstrates overrideable TRAIT_GENE_INDICES)
 # ---------------------------------------------------------------------------
+
 
 class TestSpeciesSubclass:
     def test_subclass_can_override_trait_indices(self):

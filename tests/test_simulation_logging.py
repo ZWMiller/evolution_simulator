@@ -6,18 +6,18 @@ are isolated from the default simulation.toml and run fast (≤ 20 weeks each).
 """
 
 import json
-import pytest
 from pathlib import Path
 
 from evolution_simulator.simulation import SimulationRunner
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _write_toml(path: Path, weeks: int, seed: int, stats_every: int,
-                events_every: int, output_dir: str) -> None:
+
+def _write_toml(
+    path: Path, weeks: int, seed: int, stats_every: int, events_every: int, output_dir: str
+) -> None:
     """Write a minimal simulation TOML config."""
     path.write_text(f"""
 [simulation]
@@ -46,14 +46,20 @@ name = "Test Plains"
 """)
 
 
-def make_runner(tmp_path: Path, weeks: int, stats_every: int,
-                events_every: int, seed: int = 7) -> SimulationRunner:
+def make_runner(
+    tmp_path: Path, weeks: int, stats_every: int, events_every: int, seed: int = 7
+) -> SimulationRunner:
     """Write a TOML config and return a set-up runner."""
     logs_dir = str(tmp_path / "logs")
     config_path = tmp_path / "config.toml"
-    _write_toml(config_path, weeks=weeks, seed=seed,
-                stats_every=stats_every, events_every=events_every,
-                output_dir=logs_dir)
+    _write_toml(
+        config_path,
+        weeks=weeks,
+        seed=seed,
+        stats_every=stats_every,
+        events_every=events_every,
+        output_dir=logs_dir,
+    )
     runner = SimulationRunner(config_path)
     runner.setup()
     return runner
@@ -62,6 +68,7 @@ def make_runner(tmp_path: Path, weeks: int, stats_every: int,
 # ---------------------------------------------------------------------------
 # Test 1 — Default cadence: every-week behavior is unchanged
 # ---------------------------------------------------------------------------
+
 
 def test_default_cadence_every_week(tmp_path):
     weeks = 10
@@ -88,6 +95,7 @@ def test_default_cadence_every_week(tmp_path):
 # ---------------------------------------------------------------------------
 # Test 2 — Stats-only cadence: stats every 5 weeks, no events
 # ---------------------------------------------------------------------------
+
 
 def test_stats_only_cadence(tmp_path):
     weeks = 20
@@ -121,6 +129,7 @@ def test_stats_only_cadence(tmp_path):
 # ---------------------------------------------------------------------------
 # Test 3 — Events-only cadence: events every week, stats never (except endpoints)
 # ---------------------------------------------------------------------------
+
 
 def test_events_only_cadence(tmp_path):
     weeks = 6
@@ -156,6 +165,7 @@ def test_events_only_cadence(tmp_path):
 # Test 4 — Fully-skipped week returns lightweight dict, no file written
 # ---------------------------------------------------------------------------
 
+
 def test_skipped_week_lightweight(tmp_path):
     weeks = 10
     runner = make_runner(tmp_path, weeks=weeks, stats_every=10, events_every=10)
@@ -185,6 +195,7 @@ def test_skipped_week_lightweight(tmp_path):
 # Test 5 — Every written file contains the visualizer-required keys
 # ---------------------------------------------------------------------------
 
+
 def test_every_file_has_required_keys(tmp_path):
     weeks = 20
     runner = make_runner(tmp_path, weeks=weeks, stats_every=7, events_every=3)
@@ -202,6 +213,7 @@ def test_every_file_has_required_keys(tmp_path):
 # ---------------------------------------------------------------------------
 # Test 6 — summary.json and metadata.json are always written
 # ---------------------------------------------------------------------------
+
 
 def test_summary_and_metadata_always_written(tmp_path):
     weeks = 15

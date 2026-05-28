@@ -1,19 +1,20 @@
 import numpy as np
 import pytest
-from evolution_simulator.creature import Creature, DEFAULT_TRAIT_GENE_INDICES, GENE_DIMS
+
+from evolution_simulator.creature import DEFAULT_TRAIT_GENE_INDICES, GENE_DIMS, Creature
 from evolution_simulator.habitat import (
-    Habitat,
     DEFAULT_FOOD_GENE_INDICES,
     DEFAULT_WATER_GENE_INDICES,
     HABITAT_VECTOR_DIMS,
     LOGGED_TRAITS,
+    Habitat,
     _batch_compute_traits,
 )
-
 
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
+
 
 def make_creature(seed: int, sex: str) -> Creature:
     """Create a sexually viable creature with controlled sex and seed."""
@@ -31,7 +32,7 @@ def make_compatible_pair(base_seed: int = 0) -> tuple[Creature, Creature]:
     """
     rng = np.random.default_rng(base_seed)
     base = rng.standard_normal(GENE_DIMS)
-    base[DEFAULT_TRAIT_GENE_INDICES["selectivity"]] = -10.0             # low selectivity
+    base[DEFAULT_TRAIT_GENE_INDICES["selectivity"]] = -10.0  # low selectivity
     base[DEFAULT_TRAIT_GENE_INDICES["reproduction_likelihood"]] = 10.0  # high fertility
 
     male = Creature(genes=base.copy())
@@ -48,6 +49,7 @@ def make_compatible_pair(base_seed: int = 0) -> tuple[Creature, Creature]:
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def habitat():
@@ -78,6 +80,7 @@ def populated_habitat():
 # ---------------------------------------------------------------------------
 # Initialisation
 # ---------------------------------------------------------------------------
+
 
 class TestHabitatInit:
     def test_default_vector_shape(self):
@@ -117,6 +120,7 @@ class TestHabitatInit:
 # ---------------------------------------------------------------------------
 # Creature management
 # ---------------------------------------------------------------------------
+
 
 class TestCreatureManagement:
     def test_add_creature(self, habitat):
@@ -161,6 +165,7 @@ class TestCreatureManagement:
 # ---------------------------------------------------------------------------
 # Neighbour / migration management
 # ---------------------------------------------------------------------------
+
 
 class TestNeighborManagement:
     def test_add_neighbor_bidirectional(self, habitat_pair):
@@ -250,6 +255,7 @@ class TestNeighborManagement:
 # Resource likelihoods
 # ---------------------------------------------------------------------------
 
+
 class TestResourceLikelihoods:
     def test_food_likelihoods_shape(self, habitat, populated_habitat):
         alive = populated_habitat.alive_creatures
@@ -319,11 +325,19 @@ class TestResourceLikelihoods:
 # simulate_week — structure and basic behaviour
 # ---------------------------------------------------------------------------
 
+
 class TestSimulateDayStructure:
     def test_returns_expected_keys(self, populated_habitat):
         result = populated_habitat.simulate_week()
-        assert {"habitat_id", "population", "week_results",
-                "births", "deaths", "migrations", "isolations"} <= result.keys()
+        assert {
+            "habitat_id",
+            "population",
+            "week_results",
+            "births",
+            "deaths",
+            "migrations",
+            "isolations",
+        } <= result.keys()
 
     def test_habitat_id_in_result(self, populated_habitat):
         result = populated_habitat.simulate_week()
@@ -497,6 +511,7 @@ class TestSimulateDayMating:
 # Predation
 # ---------------------------------------------------------------------------
 
+
 class TestPredation:
     def test_predation_deaths_key_in_result(self, habitat):
         c = make_creature(seed=10, sex="male")
@@ -508,7 +523,7 @@ class TestPredation:
         """Pack population far above support capacity — expect predation deaths."""
         rng = np.random.default_rng(0)
         hab = Habitat(vector=rng.standard_normal(HABITAT_VECTOR_DIMS))
-        hab.PREDATION_ALPHA = 1.0    # guarantee death at any population > 0
+        hab.PREDATION_ALPHA = 1.0  # guarantee death at any population > 0
         hab.POPULATION_SUPPORT = 1
         c = make_creature(seed=11, sex="male")
         c.energy = 1.0
@@ -528,7 +543,7 @@ class TestPredation:
         c = make_creature(seed=12, sex="male")
         # Force zero base predation rate by anti-setting the trait genes
         c.genes[DEFAULT_TRAIT_GENE_INDICES["base_predation_rate"]] = -100.0
-        c._trait_cache.clear()   # clear cache so new gene values take effect
+        c._trait_cache.clear()  # clear cache so new gene values take effect
         c.energy = 1.0
         c.hydration = 1.0
         hab.add_creature(c)
@@ -539,6 +554,7 @@ class TestPredation:
 # ---------------------------------------------------------------------------
 # compute_stats
 # ---------------------------------------------------------------------------
+
 
 class TestComputeStats:
     def test_empty_habitat_returns_empty_dict(self, habitat):
@@ -582,6 +598,7 @@ class TestComputeStats:
 # Vectorized trait computation equivalence
 # ---------------------------------------------------------------------------
 
+
 class TestBatchComputeTraits:
     def _make_creatures(self, n: int, seed: int = 42) -> list:
         rng = np.random.default_rng(seed)
@@ -600,10 +617,9 @@ class TestBatchComputeTraits:
         for i, c in enumerate(creatures):
             for j, trait in enumerate(LOGGED_TRAITS):
                 expected = round(getattr(c, trait), 4)
-                actual   = round(float(matrix[i, j]), 4)
+                actual = round(float(matrix[i, j]), 4)
                 assert actual == expected, (
-                    f"Trait '{trait}' mismatch for creature {i}: "
-                    f"batch={actual}, getattr={expected}"
+                    f"Trait '{trait}' mismatch for creature {i}: batch={actual}, getattr={expected}"
                 )
 
     def test_int_traits_are_floor_truncated(self):
@@ -614,9 +630,7 @@ class TestBatchComputeTraits:
         for j, trait in enumerate(LOGGED_TRAITS):
             if trait in int_traits:
                 col = matrix[:, j]
-                assert np.all(col == np.floor(col)), (
-                    f"Trait '{trait}' should be floor-truncated, got {col}"
-                )
+                assert np.all(col == np.floor(col)), f"Trait '{trait}' should be floor-truncated, got {col}"
 
     def test_compute_stats_mean_traits_match_getattr(self, habitat):
         """compute_stats mean_traits must match the per-creature getattr mean."""
@@ -634,15 +648,14 @@ class TestBatchComputeTraits:
 
         for trait in LOGGED_TRAITS:
             expected = round(sum(getattr(c, trait) for c in creatures) / len(creatures), 4)
-            actual   = mean_traits[trait]
-            assert actual == expected, (
-                f"mean_traits['{trait}']: batch={actual}, getattr-mean={expected}"
-            )
+            actual = mean_traits[trait]
+            assert actual == expected, f"mean_traits['{trait}']: batch={actual}, getattr-mean={expected}"
 
 
 # ---------------------------------------------------------------------------
 # Repr
 # ---------------------------------------------------------------------------
+
 
 class TestRepr:
     def test_repr_contains_id(self, habitat):
@@ -659,6 +672,7 @@ class TestRepr:
 # ---------------------------------------------------------------------------
 # Hybridization logging
 # ---------------------------------------------------------------------------
+
 
 class TestHybridizationLogging:
     def _run_mating(self, male, female):

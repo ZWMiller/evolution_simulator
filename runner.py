@@ -49,12 +49,7 @@ Examples:
             print(f"[error] Config file not found: {config_path}", file=sys.stderr)
             sys.exit(1)
     else:
-        config_path = (
-            Path(__file__).parent
-            / "evolution_simulator"
-            / "config"
-            / "simulation.toml"
-        )
+        config_path = Path(__file__).parent / "evolution_simulator" / "config" / "simulation.toml"
 
     # Import here so startup errors surface cleanly
     from evolution_simulator.simulation import SimulationRunner
@@ -76,14 +71,12 @@ Examples:
     log_dir = runner.setup()
     print(f"  Log dir: {log_dir}")
     print(f"  Habitats : {len(runner.habitats)}")
-    print(
-        f"  Founding species : {runner.species_registry.species_count}"
-    )
+    print(f"  Founding species : {runner.species_registry.species_count}")
     total_pop = sum(h.population_size for h in runner.habitats.values())
     print(f"  Starting population : {total_pop}")
     print()
     print(f"  {'Week':>6}  {'Pop':>7}  {'Species':>8}  {'Births':>7}  {'Deaths':>7}  {'Time/wk':>9}")
-    print(f"  {'─'*6}  {'─'*7}  {'─'*8}  {'─'*7}  {'─'*7}  {'─'*9}")
+    print(f"  {'─' * 6}  {'─' * 7}  {'─' * 8}  {'─' * 7}  {'─' * 7}  {'─' * 9}")
 
     total_births = 0
     total_deaths = 0
@@ -107,7 +100,7 @@ Examples:
                 f"{week_log['global_species_count']:>8}  "
                 f"{total_births:>7}  "
                 f"{total_deaths:>7}  "
-                f"{elapsed*1000:>7.1f}ms"
+                f"{elapsed * 1000:>7.1f}ms"
             )
 
         if week_log["global_population"] == 0:

@@ -5,7 +5,6 @@ that every other module can read without re-parsing files.
 
 import json
 import math
-import random
 from pathlib import Path
 
 
@@ -24,9 +23,9 @@ def load_run(log_dir: Path) -> dict:
         config_text = cfg_path.read_text()
         config_name = cfg_path.name
 
-    hab_ids     = [h["id"]   for h in metadata["habitats"]]
-    hab_names   = {h["id"]: h["name"] for h in metadata["habitats"]}
-    hab_types   = {h["id"]: h["type"] for h in metadata["habitats"]}
+    hab_ids = [h["id"] for h in metadata["habitats"]]
+    hab_names = {h["id"]: h["name"] for h in metadata["habitats"]}
+    hab_types = {h["id"]: h["type"] for h in metadata["habitats"]}
     connections = metadata.get("connections", [])
 
     weeks_data: dict[int, dict] = {}
@@ -37,19 +36,17 @@ def load_run(log_dir: Path) -> dict:
 
     all_weeks = sorted(weeks_data.keys())
     all_species: set[str] = set()
-    global_series: list[dict]                         = []
-    hab_pop:       dict[str, dict[int, int]]          = {h: {} for h in hab_ids}
-    species_global: dict[str, list[dict]]             = {}
+    global_series: list[dict] = []
+    hab_pop: dict[str, dict[int, int]] = {h: {} for h in hab_ids}
+    species_global: dict[str, list[dict]] = {}
     species_per_hab: dict[str, dict[str, list[dict]]] = {h: {} for h in hab_ids}
-    migrations_by_week:    dict[int, list[dict]]         = {}
-    migrations_by_edge:   dict[tuple, list[dict]]       = {}
-    speciation_by_week:   dict[int, list[dict]]         = {}
-    hybridization_by_week: dict[int, list[dict]]        = {}
+    migrations_by_week: dict[int, list[dict]] = {}
+    migrations_by_edge: dict[tuple, list[dict]] = {}
+    speciation_by_week: dict[int, list[dict]] = {}
+    hybridization_by_week: dict[int, list[dict]] = {}
 
     # creature_births: creature_id → {week, species, parents, sex, generation, hab_id}
     creature_births: dict[str, dict] = {}
-
-    from visualizer.style import ALL_TRAITS  # avoid circular at module level
 
     # Seed creature_births with founders from metadata (generation 0)
     for hab_id, founders in metadata.get("founders_by_hab", {}).items():
@@ -67,11 +64,13 @@ def load_run(log_dir: Path) -> dict:
         d = weeks_data[week_n]
         all_species.update(d.get("global_species_distribution", {}).keys())
 
-        global_series.append({
-            "week":          week_n,
-            "population":    d["global_population"],
-            "species_count": d["global_species_count"],
-        })
+        global_series.append(
+            {
+                "week": week_n,
+                "population": d["global_population"],
+                "species_count": d["global_species_count"],
+            }
+        )
 
         for hab_id in hab_ids:
             hab_log = d.get("habitats", {}).get(hab_id, {})
@@ -89,11 +88,11 @@ def load_run(log_dir: Path) -> dict:
         for hab_id, hab_data in d.get("habitat_stats", {}).items():
             for sp, sp_data in hab_data.get("by_species", {}).items():
                 row = {
-                    "week":             week_n,
-                    "count":            sp_data["count"],
-                    "mean_food_prob":   sp_data.get("mean_food_prob"),
-                    "mean_water_prob":  sp_data.get("mean_water_prob"),
-                    "mean_generation":  sp_data.get("mean_generation"),
+                    "week": week_n,
+                    "count": sp_data["count"],
+                    "mean_food_prob": sp_data.get("mean_food_prob"),
+                    "mean_water_prob": sp_data.get("mean_water_prob"),
+                    "mean_generation": sp_data.get("mean_generation"),
                 }
                 row.update(sp_data.get("mean_traits", {}))
                 species_per_hab.setdefault(hab_id, {}).setdefault(sp, []).append(row)
@@ -169,8 +168,7 @@ def load_run(log_dir: Path) -> dict:
 
     # Peak population per species (across all weeks)
     species_peak_population: dict[str, int] = {
-        sp: max((r["count"] for r in rows), default=0)
-        for sp, rows in species_global.items()
+        sp: max((r["count"] for r in rows), default=0) for sp, rows in species_global.items()
     }
 
     # Lifespan per species: weeks from first appearance to last logged presence.
@@ -192,35 +190,35 @@ def load_run(log_dir: Path) -> dict:
     node_positions = _spring_layout(hab_ids, connections)
 
     return {
-        "run_id":                  log_dir.name,
-        "metadata":                metadata,
-        "summary":                 summary,
-        "config_text":             config_text,
-        "config_name":             config_name,
-        "hab_ids":                 hab_ids,
-        "hab_names":               hab_names,
-        "hab_types":               hab_types,
-        "connections":             connections,
-        "all_weeks":               all_weeks,
-        "all_species":             sorted(all_species),
-        "weeks_data":              weeks_data,
-        "global_series":           global_series,
-        "hab_pop":                 hab_pop,
-        "species_global":          species_global,
-        "species_per_hab":         species_per_hab,
-        "migrations_by_week":       migrations_by_week,
-        "migrations_by_edge":      migrations_by_edge,
-        "speciation_by_week":      speciation_by_week,
-        "hybridization_by_week":   hybridization_by_week,
-        "creature_births":         creature_births,
-        "creature_children":       creature_children,
-        "species_lineage":              species_lineage,
-        "species_peak_population":      species_peak_population,
-        "species_lifespan":             species_lifespan,
-        "failed_speciation_attempts":   failed_speciation_attempts,
-        "node_positions":               node_positions,
-        "weeks_simulated":              summary["weeks_simulated"],
-        "extinct":                      summary["extinct"],
+        "run_id": log_dir.name,
+        "metadata": metadata,
+        "summary": summary,
+        "config_text": config_text,
+        "config_name": config_name,
+        "hab_ids": hab_ids,
+        "hab_names": hab_names,
+        "hab_types": hab_types,
+        "connections": connections,
+        "all_weeks": all_weeks,
+        "all_species": sorted(all_species),
+        "weeks_data": weeks_data,
+        "global_series": global_series,
+        "hab_pop": hab_pop,
+        "species_global": species_global,
+        "species_per_hab": species_per_hab,
+        "migrations_by_week": migrations_by_week,
+        "migrations_by_edge": migrations_by_edge,
+        "speciation_by_week": speciation_by_week,
+        "hybridization_by_week": hybridization_by_week,
+        "creature_births": creature_births,
+        "creature_children": creature_children,
+        "species_lineage": species_lineage,
+        "species_peak_population": species_peak_population,
+        "species_lifespan": species_lifespan,
+        "failed_speciation_attempts": failed_speciation_attempts,
+        "node_positions": node_positions,
+        "weeks_simulated": summary["weeks_simulated"],
+        "extinct": summary["extinct"],
     }
 
 
@@ -244,7 +242,7 @@ def _spring_layout(hab_ids: list, connections: list, w: int = 560, h: int = 420)
                 dx = pos[hab][0] - pos[other][0]
                 dy = pos[hab][1] - pos[other][1]
                 d2 = max(1.0, dx * dx + dy * dy)
-                d  = d2 ** 0.5
+                d = d2**0.5
                 fx += dx / d2 * 4000
                 fy += dy / d2 * 4000
                 if (hab, other) in conn_set:

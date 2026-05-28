@@ -37,9 +37,10 @@ Each confirmed species keeps two genomes:
 
 import random
 import tomllib
-import numpy as np
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
+
+import numpy as np
 
 from .creature import (
     DEFAULT_TRAIT_GENE_INDICES,
@@ -101,6 +102,7 @@ ADJECTIVES, NOUNS = load_name_config()
 # ---------------------------------------------------------------------------
 # SpeciesRegistry
 # ---------------------------------------------------------------------------
+
 
 class SpeciesRegistry:
     """
@@ -183,7 +185,7 @@ class SpeciesRegistry:
         config_path: Path = DEFAULT_CONFIG_PATH,
         min_species_population: int = DEFAULT_MIN_SPECIES_POPULATION,
         min_species_weeks: int = DEFAULT_MIN_SPECIES_WEEKS,
-        compat_indices: Optional[list[int]] = None,
+        compat_indices: list[int] | None = None,
         split_max_k: int = DEFAULT_SPLIT_MAX_K,
         split_isolation_threshold: float = DEFAULT_SPLIT_ISOLATION_THRESHOLD,
         anagenesis_threshold: float = DEFAULT_ANAGENESIS_THRESHOLD,
@@ -208,13 +210,13 @@ class SpeciesRegistry:
         # reserved for the future anagenesis axis.  Spans all species ever.
         self._registry: dict[str, np.ndarray] = {}
         # Stacked frozen-type matrix + name list, kept in sync (all species).
-        self._progenitor_matrix: Optional[np.ndarray] = None  # (N, 500)
+        self._progenitor_matrix: np.ndarray | None = None  # (N, 500)
         self._species_order: list[str] = []
 
         # name → LIVING centroid (compat subset, 245-dim).  Only species with
         # living members appear here after a refresh; this is the C2 detection set.
         self._centroids: dict[str, np.ndarray] = {}
-        self._centroid_matrix: Optional[np.ndarray] = None  # (M, 245)
+        self._centroid_matrix: np.ndarray | None = None  # (M, 245)
         self._centroid_order: list[str] = []
 
         # name → frozen TYPE phenotype vector (raw [0,1] PHENOTYPE_TRAITS).
@@ -246,7 +248,7 @@ class SpeciesRegistry:
     def register_founding_species(
         self,
         genes: np.ndarray,
-        name: Optional[str] = None,
+        name: str | None = None,
     ) -> str:
         """
         Register a founding species.
@@ -318,14 +320,10 @@ class SpeciesRegistry:
             if c.species in self._registry:
                 groups.setdefault(c.species, []).append(self._compat(c.genes))
 
-        self._centroids = {
-            name: np.mean(np.stack(vecs), axis=0) for name, vecs in groups.items()
-        }
+        self._centroids = {name: np.mean(np.stack(vecs), axis=0) for name, vecs in groups.items()}
         self._rebuild_centroid_matrix()
 
-    def promote_candidates(
-        self, alive_creatures: "list[Creature]", current_week: int
-    ) -> list[dict]:
+    def promote_candidates(self, alive_creatures: "list[Creature]", current_week: int) -> list[dict]:
         """
         Promote any candidates that meet both population and age criteria.
 
@@ -350,36 +348,29 @@ class SpeciesRegistry:
             alive_members = cand["members"] & alive_ids
             if not alive_members:
                 # All members died before promotion — record the failed attempt.
-                self.failed_speciation_attempts.append({
-                    "parent_species": cand["parent_species"],
-                    "detected_week": cand["detected_week"],
-                    "failed_week": current_week,
-                    "peak_members": cand["peak_members"],
-                    "first_creature_id": cand["first_creature_id"],
-                })
+                self.failed_speciation_attempts.append(
+                    {
+                        "parent_species": cand["parent_species"],
+                        "detected_week": cand["detected_week"],
+                        "failed_week": current_week,
+                        "peak_members": cand["peak_members"],
+                        "first_creature_id": cand["first_creature_id"],
+                    }
+                )
                 to_remove.append(cid)
                 continue
 
             cand["members"] = alive_members
             weeks_elapsed = current_week - cand["detected_week"]
 
-            if (
-                len(alive_members) >= self.min_species_population
-                and weeks_elapsed >= self.min_species_weeks
-            ):
+            if len(alive_members) >= self.min_species_population and weeks_elapsed >= self.min_species_weeks:
                 new_name = self._unique_name()
                 # Living centroid seeded from the promoted members' compat mean;
                 # full-genome type frozen from the candidate's seed genome.
                 member_compat = [
-                    self._compat(creature_map[mid].genes)
-                    for mid in alive_members
-                    if mid in creature_map
+                    self._compat(creature_map[mid].genes) for mid in alive_members if mid in creature_map
                 ]
-                centroid = (
-                    np.mean(np.stack(member_compat), axis=0)
-                    if member_compat
-                    else cand["compat"]
-                )
+                centroid = np.mean(np.stack(member_compat), axis=0) if member_compat else cand["compat"]
                 self._add_to_registry(new_name, cand["genes"], centroid=centroid)
                 origin = cand.get("origin", "kmeans_subcluster")
                 ev = {
@@ -401,9 +392,7 @@ class SpeciesRegistry:
 
         return promoted_events
 
-    def detect_subcluster_splits(
-        self, alive_creatures: "list[Creature]", current_week: int
-    ) -> None:
+    def detect_subcluster_splits(self, alive_creatures: "list[Creature]", current_week: int) -> None:
         """
         Detect reproductive-isolation splits WITHIN a species (cladogenesis).
 
@@ -442,9 +431,7 @@ class SpeciesRegistry:
             if centroids.shape[0] == 1:
                 continue
 
-            type_unit = self._unit_rows(
-                self._compat(self._registry[sp])[np.newaxis, :]
-            )[0]
+            type_unit = self._unit_rows(self._compat(self._registry[sp])[np.newaxis, :])[0]
             primary = int(np.argmax(centroids @ type_unit))
 
             for j in range(centroids.shape[0]):
@@ -463,10 +450,12 @@ class SpeciesRegistry:
                         cand["members"].add(m.creature_id)
                     cand["peak_members"] = max(cand["peak_members"], len(cand["members"]))
                 else:
-                    rep = max(sub_members, key=lambda m: float(
-                        self._unit_rows(self._compat(m.genes)[np.newaxis, :])[0]
-                        @ sub_centroid
-                    ))
+                    rep = max(
+                        sub_members,
+                        key=lambda m: float(
+                            self._unit_rows(self._compat(m.genes)[np.newaxis, :])[0] @ sub_centroid
+                        ),
+                    )
                     new_cid = f"cand_{self._next_candidate_id}"
                     self._next_candidate_id += 1
                     self._candidates[new_cid] = {
@@ -481,7 +470,9 @@ class SpeciesRegistry:
                     }
 
     def detect_anagenesis(
-        self, alive_creatures: "list[Creature]", current_week: int,
+        self,
+        alive_creatures: "list[Creature]",
+        current_week: int,
         pending_only: bool = False,
     ) -> list[dict]:
         """
@@ -552,8 +543,7 @@ class SpeciesRegistry:
                 continue
 
             mover_pairs = [
-                (i, m) for i, m in enumerate(members)
-                if self._cos(phc[i], cc) > self._cos(phc[i], tc)
+                (i, m) for i, m in enumerate(members) if self._cos(phc[i], cc) > self._cos(phc[i], tc)
             ]
             if len(mover_pairs) < self.min_species_population:
                 continue
@@ -568,7 +558,7 @@ class SpeciesRegistry:
             # by a confirmed species.  Reassign them there instead of minting a
             # redundant new lineage (prevents cascade re-registration of the same
             # population shift across multiple detection cycles).
-            existing_match: Optional[str] = None
+            existing_match: str | None = None
             for existing_sp, existing_type_ph in self._type_phenotype.items():
                 if existing_sp == sp:
                     continue
@@ -583,9 +573,7 @@ class SpeciesRegistry:
 
             rep = max(mover_pairs, key=lambda im: self._cos(phc[im[0]], cc))[1]
             movers = [m for _, m in mover_pairs]
-            mover_compat = np.mean(
-                np.stack([self._compat(m.genes) for m in movers]), axis=0
-            )
+            mover_compat = np.mean(np.stack([self._compat(m.genes) for m in movers]), axis=0)
             new_name = self._unique_name()
             self._add_to_registry(new_name, rep.genes, centroid=mover_compat)
             # Anchor the anagenesis type phenotype to the actual mover population
@@ -627,14 +615,14 @@ class SpeciesRegistry:
         safe = denom > 1e-10
         sims = np.where(safe, dots / np.where(safe, denom, 1.0), 0.0)
         sims = np.clip(sims, -1.0, 1.0)
-        return dict(zip(self._species_order, sims.tolist()))
+        return dict(zip(self._species_order, sims.tolist(), strict=False))
 
-    def progenitor_genes(self, species_name: str) -> Optional[np.ndarray]:
+    def progenitor_genes(self, species_name: str) -> np.ndarray | None:
         """Return a copy of the frozen TYPE genome for the named species."""
         genes = self._registry.get(species_name)
         return genes.copy() if genes is not None else None
 
-    def centroid(self, species_name: str) -> Optional[np.ndarray]:
+    def centroid(self, species_name: str) -> np.ndarray | None:
         """Return a copy of the living compatibility centroid, or None if extinct."""
         c = self._centroids.get(species_name)
         return c.copy() if c is not None else None
@@ -662,9 +650,7 @@ class SpeciesRegistry:
         """Slice the compatibility subset (245-dim) out of a full genome."""
         return genes[self._compat_indices]
 
-    def _add_to_registry(
-        self, name: str, genes: np.ndarray, centroid: Optional[np.ndarray] = None
-    ) -> None:
+    def _add_to_registry(self, name: str, genes: np.ndarray, centroid: np.ndarray | None = None) -> None:
         """
         Register a new species: store its frozen full-genome type and seed its
         living compatibility centroid.
@@ -697,9 +683,7 @@ class SpeciesRegistry:
             self._centroid_order = []
             return
         self._centroid_order = list(self._centroids.keys())
-        self._centroid_matrix = np.stack(
-            [self._centroids[n] for n in self._centroid_order]
-        )
+        self._centroid_matrix = np.stack([self._centroids[n] for n in self._centroid_order])
 
     def _closest_centroid(self, compat: np.ndarray) -> tuple[str, float]:
         """Return (species_name, cosine_similarity) for the nearest living centroid."""
@@ -712,24 +696,20 @@ class SpeciesRegistry:
         best_idx = int(np.argmax(sims))
         return self._centroid_order[best_idx], float(sims[best_idx])
 
-    def _closest_candidate(self, compat: np.ndarray) -> tuple[Optional[str], float]:
+    def _closest_candidate(self, compat: np.ndarray) -> tuple[str | None, float]:
         """
         Return (candidate_id, cosine_similarity) for the nearest candidate in
         compatibility space.  (None, 0.0) if no candidates exist.
         """
         if not self._candidates:
             return None, 0.0
-        best_cid: Optional[str] = None
+        best_cid: str | None = None
         best_score = -2.0
         norm_c = float(np.linalg.norm(compat))
         for cid, cand in self._candidates.items():
             cv = cand["compat"]
             denom = float(np.linalg.norm(cv)) * norm_c
-            sim = (
-                float(np.clip(np.dot(cv, compat) / denom, -1.0, 1.0))
-                if denom > 1e-10
-                else 0.0
-            )
+            sim = float(np.clip(np.dot(cv, compat) / denom, -1.0, 1.0)) if denom > 1e-10 else 0.0
             if sim > best_score:
                 best_score = sim
                 best_cid = cid
@@ -794,10 +774,10 @@ class SpeciesRegistry:
         n = X.shape[0]
         centroids = [X[rng.integers(n)]]
         for _ in range(1, k):
-            sims = X @ np.stack(centroids).T            # (n, chosen) cosine
+            sims = X @ np.stack(centroids).T  # (n, chosen) cosine
             dist = np.clip(1.0 - sims.max(axis=1), 0.0, None)  # dist to nearest centre
             total = float(dist.sum())
-            if total <= 1e-12:                          # all points coincide
+            if total <= 1e-12:  # all points coincide
                 centroids.append(X[rng.integers(n)])
             else:
                 centroids.append(X[rng.choice(n, p=dist / total)])
@@ -835,25 +815,25 @@ class SpeciesRegistry:
         """
         rng = np.random.default_rng(seed)
         n = X.shape[0]
-        best_labels: Optional[np.ndarray] = None
-        best_centroids: Optional[np.ndarray] = None
-        best_inertia = -np.inf                          # total cosine-to-centre; maximize
+        best_labels: np.ndarray | None = None
+        best_centroids: np.ndarray | None = None
+        best_inertia = -np.inf  # total cosine-to-centre; maximize
         for _ in range(n_init):
             centroids = self._kmeanspp_init(X, k, rng)
             labels = np.full(n, -1, dtype=int)
             for _ in range(max_iter):
-                new_labels = np.argmax(X @ centroids.T, axis=1)   # assign
-                for j in range(k):                                # update
+                new_labels = np.argmax(X @ centroids.T, axis=1)  # assign
+                for j in range(k):  # update
                     pts = X[new_labels == j]
                     if len(pts) == 0:
-                        centroids[j] = X[rng.integers(n)]         # reseed empty cluster
+                        centroids[j] = X[rng.integers(n)]  # reseed empty cluster
                     else:
                         c = pts.sum(axis=0)
                         nrm = float(np.linalg.norm(c))
                         centroids[j] = c / nrm if nrm > 1e-12 else pts[0]  # spherical mean
                 if np.array_equal(new_labels, labels):
                     labels = new_labels
-                    break                                          # converged
+                    break  # converged
                 labels = new_labels
             inertia = float((X @ centroids.T)[np.arange(n), labels].sum())
             if inertia > best_inertia:
@@ -862,9 +842,7 @@ class SpeciesRegistry:
                 best_centroids = centroids.copy()
         return best_labels, best_centroids
 
-    def _select_clusters(
-        self, X: np.ndarray, seed: int
-    ) -> tuple[np.ndarray, np.ndarray]:
+    def _select_clusters(self, X: np.ndarray, seed: int) -> tuple[np.ndarray, np.ndarray]:
         """
         Pick the number of reproductively-isolated sub-clusters in X.
 
@@ -886,31 +864,31 @@ class SpeciesRegistry:
         mean = X.sum(axis=0)
         nrm = float(np.linalg.norm(mean))
         mean = mean / nrm if nrm > 1e-12 else X[0]
-        best = (np.zeros(n, dtype=int), mean[np.newaxis, :])      # K = 1 fallback
+        best = (np.zeros(n, dtype=int), mean[np.newaxis, :])  # K = 1 fallback
 
         kmax = min(self.split_max_k, n // self.min_species_population)
         for k in range(2, kmax + 1):
             labels, centroids = self._spherical_kmeans(X, k, seed + k)
             if (np.bincount(labels, minlength=k) < self.min_species_population).any():
-                continue                                          # a cluster too small
-            pairwise = centroids @ centroids.T                    # cosine (unit centres)
+                continue  # a cluster too small
+            pairwise = centroids @ centroids.T  # cosine (unit centres)
             iu = np.triu_indices(k, k=1)
             if float(pairwise[iu].max()) < self.split_isolation_threshold:
-                best = (labels, centroids)                        # mutually isolated → valid
+                best = (labels, centroids)  # mutually isolated → valid
         return best
 
-    def _register_new_species(
-        self, creature: "Creature", parent_species: Optional[str]
-    ) -> str:
+    def _register_new_species(self, creature: "Creature", parent_species: str | None) -> str:
         """Bootstrap path: immediately confirm a species from a single creature."""
         name = self._unique_name()
         self._add_to_registry(name, creature.genes)
-        self.speciation_events.append({
-            "new_species": name,
-            "parent_species": parent_species,
-            "creature_id": creature.creature_id,
-            "event_type": "cladogenesis_bootstrap",
-        })
+        self.speciation_events.append(
+            {
+                "new_species": name,
+                "parent_species": parent_species,
+                "creature_id": creature.creature_id,
+                "event_type": "cladogenesis_bootstrap",
+            }
+        )
         return name
 
     def _unique_name(self) -> str:
@@ -922,8 +900,7 @@ class SpeciesRegistry:
                 self._used_names.add(name)
                 return name
         raise RuntimeError(
-            f"Exhausted all {len(self._adjectives) * len(self._nouns)} unique species "
-            "name combinations."
+            f"Exhausted all {len(self._adjectives) * len(self._nouns)} unique species name combinations."
         )
 
     def __repr__(self) -> str:

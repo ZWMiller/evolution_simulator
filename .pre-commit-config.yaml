@@ -1,0 +1,29 @@
+# Pre-commit hook configuration
+# Run manually:   poetry run pre-commit run --all-files
+# Install hooks:  poetry run pre-commit install
+# Update to latest hook revisions: poetry run pre-commit autoupdate
+
+exclude: ^simulation_logs/
+
+repos:
+  # ── File hygiene ────────────────────────────────────────────────────────────
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace          # strip trailing spaces
+      - id: end-of-file-fixer            # ensure files end with a newline
+      - id: check-toml                   # validate TOML syntax
+      - id: check-merge-conflict         # catch stray <<<< markers
+      - id: check-added-large-files      # warn on files > 500 KB
+        args: ["--maxkb=500"]
+      - id: debug-statements             # catch forgotten pdb / breakpoint()
+      - id: mixed-line-ending            # normalise CRLF → LF
+        args: ["--fix=lf"]
+
+  # ── Ruff: lint + import-sort + format (replaces Black + isort + flake8) ────
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.14
+    hooks:
+      - id: ruff                         # lint and auto-fix safe issues
+        args: [--fix]
+      - id: ruff-format                  # Black-equivalent formatter

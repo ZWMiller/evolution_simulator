@@ -25,6 +25,7 @@ Run
 ---
     poetry run python experiments/drift_trajectory.py
 """
+
 import sys
 from pathlib import Path
 
@@ -33,8 +34,8 @@ import numpy as np
 # Make the project importable regardless of the invoking working directory.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from evolution_simulator.simulation import SimulationRunner
 from evolution_simulator.creature import compute_phenotype_matrix
+from evolution_simulator.simulation import SimulationRunner
 
 WEEKS = 12000
 SAMPLE = 500
@@ -56,13 +57,8 @@ def main() -> None:
     reg.anagenesis_threshold = 0.0  # disable anagenesis so types stay frozen
     founders = list(reg.all_species)
 
-    gen = np.mean([
-        c.weeks_to_sexual_viability
-        for h in r.habitats.values()
-        for c in h.alive_creatures
-    ])
-    print(f"approx generation length: {gen:.1f} weeks  ->  "
-          f"{WEEKS} weeks ~= {WEEKS / gen:.0f} generations")
+    gen = np.mean([c.weeks_to_sexual_viability for h in r.habitats.values() for c in h.alive_creatures])
+    print(f"approx generation length: {gen:.1f} weeks  ->  {WEEKS} weeks ~= {WEEKS / gen:.0f} generations")
     print(f"{'week':>6} {'gens':>5} {'living':>6} {'min_cos':>8} {'med_cos':>8}  founders_alive")
 
     for w in range(1, WEEKS + 1):
@@ -92,8 +88,7 @@ def main() -> None:
                 cen = compute_phenotype_matrix(np.stack([m.genes for m in ms])).mean(0)
                 fnd.append(f"{centred_cos(cen, reg._type_phenotype[f]):.3f}")
 
-        print(f"{w:>6} {w / gen:>5.0f} {len(alive):>6} "
-              f"{min(vals):>8.4f} {np.median(vals):>8.4f}  {fnd}")
+        print(f"{w:>6} {w / gen:>5.0f} {len(alive):>6} {min(vals):>8.4f} {np.median(vals):>8.4f}  {fnd}")
 
 
 if __name__ == "__main__":

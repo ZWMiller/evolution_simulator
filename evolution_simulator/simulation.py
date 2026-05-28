@@ -37,14 +37,14 @@ import logging
 import random
 import shutil
 import tomllib
-import numpy as np
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
-from .creature import Creature, GENE_DIMS
-from .habitat import Habitat, LOGGED_TRAITS
+import numpy as np
+
+from .creature import GENE_DIMS, Creature
+from .habitat import LOGGED_TRAITS, Habitat
 from .habitats import HABITAT_TYPE_REGISTRY
 from .species import SpeciesRegistry
 
@@ -54,6 +54,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # SimulationRunner
 # ---------------------------------------------------------------------------
+
 
 class SimulationRunner:
     """
@@ -75,10 +76,10 @@ class SimulationRunner:
         self.config_path: Path = config_path
 
         self.habitats: dict[str, Habitat] = {}
-        self.habitat_types: dict[str, str] = {}   # id → type name string
-        self.species_registry: Optional[SpeciesRegistry] = None
+        self.habitat_types: dict[str, str] = {}  # id → type name string
+        self.species_registry: SpeciesRegistry | None = None
         self.week: int = 0
-        self.log_dir: Optional[Path] = None
+        self.log_dir: Path | None = None
         self._total_hybridization_events: int = 0
 
     # ------------------------------------------------------------------
@@ -127,9 +128,7 @@ class SimulationRunner:
         anagenesis_threshold = species_cfg.get(
             "anagenesis_threshold", SpeciesRegistry.DEFAULT_ANAGENESIS_THRESHOLD
         )
-        anagenesis_weeks = species_cfg.get(
-            "anagenesis_weeks", SpeciesRegistry.DEFAULT_ANAGENESIS_WEEKS
-        )
+        anagenesis_weeks = species_cfg.get("anagenesis_weeks", SpeciesRegistry.DEFAULT_ANAGENESIS_WEEKS)
         self.species_registry = SpeciesRegistry(
             compatibility_threshold=compat_threshold,
             min_species_population=min_pop,
@@ -200,19 +199,21 @@ class SimulationRunner:
                         creature.species = sp_name
                         creature.age = creature.weeks_to_sexual_viability + 1
                         hab.add_creature(creature)
-                        self._founders_by_hab[hab_id].append({
-                            "creature_id": creature.creature_id,
-                            "species": sp_name,
-                            "sex": creature.sex,
-                            "generation": 0,
-                        })
+                        self._founders_by_hab[hab_id].append(
+                            {
+                                "creature_id": creature.creature_id,
+                                "species": sp_name,
+                                "sex": creature.sex,
+                                "generation": 0,
+                            }
+                        )
         else:
             for hab_id, hab in self.habitats.items():
                 inst_cfg = self._habitat_instance_config(hab_id)
                 n_species = inst_cfg.get("initial_species_per_habitat", global_n_species)
                 n_per = inst_cfg.get("creatures_per_species", global_n_per_species)
 
-                for sp_idx in range(n_species):
+                for _ in range(n_species):
                     random_genes = rng.standard_normal(GENE_DIMS)
                     if habitat_bias > 0.0:
                         # Mix random genes with a scaled habitat direction so creatures
@@ -222,9 +223,7 @@ class SimulationRunner:
                         founding_genes = (1.0 - habitat_bias) * random_genes + habitat_bias * hab_scaled
                     else:
                         founding_genes = random_genes
-                    species_name = self.species_registry.register_founding_species(
-                        founding_genes
-                    )
+                    species_name = self.species_registry.register_founding_species(founding_genes)
 
                     for i in range(n_per):
                         genes = founding_genes + rng.standard_normal(GENE_DIMS) * genome_noise
@@ -236,17 +235,21 @@ class SimulationRunner:
                         # Start at sexual maturity so mating begins on week 1.
                         creature.age = creature.weeks_to_sexual_viability + 1
                         hab.add_creature(creature)
-                        self._founders_by_hab[hab_id].append({
-                            "creature_id": creature.creature_id,
-                            "species": species_name,
-                            "sex": creature.sex,
-                            "generation": 0,
-                        })
+                        self._founders_by_hab[hab_id].append(
+                            {
+                                "creature_id": creature.creature_id,
+                                "species": species_name,
+                                "sex": creature.sex,
+                                "generation": 0,
+                            }
+                        )
 
         total_pop = sum(h.population_size for h in self.habitats.values())
         logger.info(
             "Setup complete: %d habitats, %d creatures, %d founding species",
-            len(self.habitats), total_pop, self.species_registry.species_count,
+            len(self.habitats),
+            total_pop,
+            self.species_registry.species_count,
         )
 
         self._write_metadata()
@@ -276,7 +279,9 @@ class SimulationRunner:
             if (w + 1) % 50 == 0 or w == 0:
                 logger.info(
                     "Week %d: population=%d, species=%d",
-                    self.week, pop, self.species_registry.species_count,
+                    self.week,
+                    pop,
+                    self.species_registry.species_count,
                 )
         self._write_summary(extinct=extinct)
         logger.info("Simulation complete. Logs in: %s", self.log_dir)
@@ -336,12 +341,14 @@ class SimulationRunner:
         migration_log: list[dict] = []
         for creature, from_id, dest_hab in pending_migrations:
             dest_hab.add_creature(creature)
-            migration_log.append({
-                "creature_id": creature.creature_id,
-                "species": creature.species,
-                "from_habitat": from_id,
-                "to_habitat": dest_hab.habitat_id,
-            })
+            migration_log.append(
+                {
+                    "creature_id": creature.creature_id,
+                    "species": creature.species,
+                    "from_habitat": from_id,
+                    "to_habitat": dest_hab.habitat_id,
+                }
+            )
 
         # Refresh living centroids (the reproductive reference for speciation)
         # and promote candidates that have met population + age criteria.  Both
@@ -379,8 +386,7 @@ class SimulationRunner:
         total_pop = sum(h.population_size for h in self.habitats.values())
         births_this_week = sum(len(r["births"]) for r in habitat_results.values())
         deaths_this_week = sum(
-            len(r["deaths"]) + len(r.get("predation_deaths", []))
-            for r in habitat_results.values()
+            len(r["deaths"]) + len(r.get("predation_deaths", [])) for r in habitat_results.values()
         )
 
         # --- Decide what to write this week ---
@@ -390,12 +396,15 @@ class SimulationRunner:
 
         is_endpoint = (self.week == 1) or (self.week == total_weeks)
         stats_due = is_endpoint or (stats_every >= 1 and self.week % stats_every == 0)
-        events_due = (events_every >= 1 and self.week % events_every == 0)
+        events_due = events_every >= 1 and self.week % events_every == 0
 
         if stats_due or events_due:
             week_log = self._build_week_log(
-                habitat_results, migration_log, new_speciations,
-                include_stats=stats_due, include_events=events_due,
+                habitat_results,
+                migration_log,
+                new_speciations,
+                include_stats=stats_due,
+                include_events=events_due,
             )
             self._write_week_log(week_log)
             week_log["logged"] = True
@@ -456,9 +465,7 @@ class SimulationRunner:
                 "habitat_type": self.habitat_types.get(hab_id, "Unknown"),
                 "habitat_name": hab.name,
                 "population": result["population"],
-                "species_distribution": dict(
-                    Counter(c.species for c in hab.alive_creatures)
-                ),
+                "species_distribution": dict(Counter(c.species for c in hab.alive_creatures)),
             }
 
         # ------------------------------------------------------------------
@@ -500,10 +507,7 @@ class SimulationRunner:
                     "total_count": n,
                     "habitat_counts": sp_hab_counts[sp_name],
                     "mean_generation": round(sp_generation_sums[sp_name] / n, 2),
-                    "mean_traits": {
-                        t: round(sp_trait_sums[sp_name][t] / n, 4)
-                        for t in LOGGED_TRAITS
-                    },
+                    "mean_traits": {t: round(sp_trait_sums[sp_name][t] / n, 4) for t in LOGGED_TRAITS},
                 }
 
             week_log["habitat_stats"] = habitat_stats
@@ -518,11 +522,13 @@ class SimulationRunner:
                 deaths_detail = []
                 for cid in all_death_ids:
                     creature_log = result["week_results"].get(cid, {})
-                    deaths_detail.append({
-                        "creature_id": cid,
-                        "cause": creature_log.get("cause_of_death"),
-                        "age": creature_log.get("age"),
-                    })
+                    deaths_detail.append(
+                        {
+                            "creature_id": cid,
+                            "cause": creature_log.get("cause_of_death"),
+                            "age": creature_log.get("age"),
+                        }
+                    )
 
                 births_detail = [
                     {
@@ -628,8 +634,7 @@ class SimulationRunner:
                 for hab_id, hab in self.habitats.items()
             },
             "final_population_per_habitat": {
-                hab_id: hab.population_size
-                for hab_id, hab in self.habitats.items()
+                hab_id: hab.population_size for hab_id, hab in self.habitats.items()
             },
         }
         with open(self.log_dir / "summary.json", "w") as fh:

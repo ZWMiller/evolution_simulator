@@ -6,31 +6,37 @@ import json
 
 import dash
 import dash_cytoscape as cyto
-from dash import dcc, html, Input, Output, State, ALL, callback_context, no_update
+from dash import ALL, Input, Output, State, callback_context, dcc, no_update
 
+import visualizer.figures as figs
 from visualizer.layout import build
 from visualizer.network import build_cyto_elements
 from visualizer.panels import render
-import visualizer.figures as figs
-from visualizer.style import BG, PANEL_BG, BORDER, FONT
+from visualizer.style import BG, BORDER, FONT, PANEL_BG
 
 cyto.load_extra_layouts()
 
 _PANEL_OPEN_STYLE = dict(
-    width="460px", display="flex", flexDirection="column",
-    backgroundColor=PANEL_BG, overflow="hidden",
-    transition="width 0.15s ease", minWidth="0",
+    width="460px",
+    display="flex",
+    flexDirection="column",
+    backgroundColor=PANEL_BG,
+    overflow="hidden",
+    transition="width 0.15s ease",
+    minWidth="0",
 )
 _PANEL_CLOSED_STYLE = dict(
-    width="0", display="flex", flexDirection="column",
-    backgroundColor=PANEL_BG, overflow="hidden",
-    transition="width 0.15s ease", minWidth="0",
+    width="0",
+    display="flex",
+    flexDirection="column",
+    backgroundColor=PANEL_BG,
+    overflow="hidden",
+    transition="width 0.15s ease",
+    minWidth="0",
 )
 
-_CANVAS_SHOW = dict(position="absolute", inset="0", display="flex",
-                    flexDirection="column", overflow="hidden")
-_CANVAS_HIDE = dict(position="absolute", inset="0", display="none",
-                    overflow="hidden")
+_CANVAS_SHOW = dict(position="absolute", inset="0", display="flex", flexDirection="column", overflow="hidden")
+_CANVAS_HIDE = dict(position="absolute", inset="0", display="none", overflow="hidden")
 
 # Resize-handle drag behaviour injected into the page HTML.
 _RESIZE_JS = """
@@ -131,15 +137,15 @@ def make_app(run: dict) -> dash.Dash:
 
     layout = build(run)
     # Stores injected at root level (required by Dash pattern-matching callbacks)
-    layout.children.insert(0, dcc.Store(id="panel-state",       data=None))
-    layout.children.insert(1, dcc.Store(id="tap-store",         data=None))
-    layout.children.insert(2, dcc.Store(id="view-mode",         data="habitat"))
+    layout.children.insert(0, dcc.Store(id="panel-state", data=None))
+    layout.children.insert(1, dcc.Store(id="tap-store", data=None))
+    layout.children.insert(2, dcc.Store(id="view-mode", data="habitat"))
     layout.children.insert(3, dcc.Store(id="family-tree-focus", data=None))
     app.layout = layout
 
     # ── Network graph + day label ──────────────────────────────────────────────
     @app.callback(
-        Output("cyto-graph",  "elements"),
+        Output("cyto-graph", "elements"),
         Output("day-display", "children"),
         Input("timeline-slider", "value"),
     )
@@ -169,13 +175,13 @@ def make_app(run: dict) -> dash.Dash:
         Output("tap-store", "data"),
         Input("cyto-graph", "tapNodeData"),
         Input("cyto-graph", "tapEdgeData"),
-        State("tap-store",  "data"),
+        State("tap-store", "data"),
         prevent_initial_call=True,
     )
     def record_tap(node_data, edge_data, prev):
-        ctx  = callback_context
+        ctx = callback_context
         prop = ctx.triggered[0]["prop_id"]
-        seq  = (prev or {}).get("seq", 0) + 1
+        seq = (prev or {}).get("seq", 0) + 1
         if "tapNodeData" in prop and node_data:
             return {"kind": "node", "data": node_data, "seq": seq}
         if "tapEdgeData" in prop and edge_data:
@@ -197,23 +203,29 @@ def make_app(run: dict) -> dash.Dash:
 
     # ── Canvas visibility + timeline visibility ────────────────────────────────
     @app.callback(
-        Output("habitat-canvas",          "style"),
-        Output("phylogeny-canvas",        "style"),
-        Output("family-tree-canvas",      "style"),
+        Output("habitat-canvas", "style"),
+        Output("phylogeny-canvas", "style"),
+        Output("family-tree-canvas", "style"),
         Output("trait-comparison-canvas", "style"),
-        Output("timeline",                "style"),
+        Output("timeline", "style"),
         Input("view-mode", "data"),
     )
     def update_canvas_visibility(mode: str):
         _show_block = dict(position="absolute", inset="0", display="block", overflow="hidden")
-        _show_flex  = dict(position="absolute", inset="0", display="flex",
-                           flexDirection="column", overflow="hidden")
-        _hide       = dict(position="absolute", inset="0", display="none", overflow="hidden")
+        _show_flex = dict(
+            position="absolute", inset="0", display="flex", flexDirection="column", overflow="hidden"
+        )
+        _hide = dict(position="absolute", inset="0", display="none", overflow="hidden")
 
         _timeline_show = dict(
-            display="flex", height="72px", padding="0 20px",
-            backgroundColor=BG, borderTop=f"1px solid {BORDER}",
-            alignItems="center", boxSizing="border-box", gap="4px",
+            display="flex",
+            height="72px",
+            padding="0 20px",
+            backgroundColor=BG,
+            borderTop=f"1px solid {BORDER}",
+            alignItems="center",
+            boxSizing="border-box",
+            gap="4px",
         )
         _timeline_hide = dict(display="none")
 
@@ -233,23 +245,23 @@ def make_app(run: dict) -> dash.Dash:
     )
     def highlight_mode_btn(mode: str):
         modes = ["habitat", "phylogeny", "family_tree", "trait_comparison"]
-        labels = {"habitat": "HABITAT", "phylogeny": "PHYLOGENY",
-                  "family_tree": "FAMILY TREE", "trait_comparison": "TRAIT COMPARE"}
         styles = []
         for m in modes:
-            active = (m == mode)
-            styles.append(dict(
-                background="none",
-                fontFamily=FONT,
-                fontSize="11px",
-                letterSpacing="0.12em",
-                cursor="pointer",
-                padding="4px 12px",
-                borderRadius="2px",
-                border=f"1px solid {'#3a7a3a' if active else BORDER}",
-                color="#e4f4e4" if active else "#a0b8a0",
-                backgroundColor="#1a2a1a" if active else "transparent",
-            ))
+            active = m == mode
+            styles.append(
+                dict(
+                    background="none",
+                    fontFamily=FONT,
+                    fontSize="11px",
+                    letterSpacing="0.12em",
+                    cursor="pointer",
+                    padding="4px 12px",
+                    borderRadius="2px",
+                    border=f"1px solid {'#3a7a3a' if active else BORDER}",
+                    color="#e4f4e4" if active else "#a0b8a0",
+                    backgroundColor="#1a2a1a" if active else "transparent",
+                )
+            )
         return styles
 
     # ── Phylogeny figure ───────────────────────────────────────────────────────
@@ -293,16 +305,13 @@ def make_app(run: dict) -> dash.Dash:
             return [], None
 
         births = run.get("creature_births", {})
-        sp_creatures = [
-            (cid, data) for cid, data in births.items()
-            if data.get("species") == species
-        ]
+        sp_creatures = [(cid, data) for cid, data in births.items() if data.get("species") == species]
         if not sp_creatures:
             return [], None
 
         # Sort: founders first (generation 0), then by week desc for recent ones
         founders = [(cid, d) for cid, d in sp_creatures if d.get("generation", 1) == 0]
-        others   = sorted(
+        others = sorted(
             [(cid, d) for cid, d in sp_creatures if d.get("generation", 1) > 0],
             key=lambda x: -x[1].get("week", 0),
         )
@@ -327,12 +336,12 @@ def make_app(run: dict) -> dash.Dash:
     # ── Family tree focus store (dropdown or wheel-click) ─────────────────────
     @app.callback(
         Output("family-tree-focus", "data"),
-        Input("ft-creature-dropdown",  "value"),
-        Input("family-tree-graph",     "clickData"),
+        Input("ft-creature-dropdown", "value"),
+        Input("family-tree-graph", "clickData"),
         prevent_initial_call=True,
     )
     def update_family_tree_focus(dropdown_val, click_data):
-        ctx  = callback_context
+        ctx = callback_context
         prop = ctx.triggered[0]["prop_id"] if ctx.triggered else ""
 
         if "family-tree-graph.clickData" in prop and click_data:
@@ -352,7 +361,7 @@ def make_app(run: dict) -> dash.Dash:
     @app.callback(
         Output("family-tree-graph", "figure"),
         Input("family-tree-focus", "data"),
-        Input("view-mode",          "data"),
+        Input("view-mode", "data"),
     )
     def render_family_tree(creature_id: str, mode: str):
         if mode != "family_tree":
@@ -364,12 +373,12 @@ def make_app(run: dict) -> dash.Dash:
     # ── Panel state machine ────────────────────────────────────────────────────
     @app.callback(
         Output("panel-state", "data"),
-        Input("tap-store",                            "data"),
+        Input("tap-store", "data"),
         Input({"type": "panel-action", "action": ALL}, "n_clicks"),
-        Input({"type": "sp-btn",       "index":  ALL}, "n_clicks"),
-        Input({"type": "trait-btn",    "index":  ALL}, "n_clicks"),
+        Input({"type": "sp-btn", "index": ALL}, "n_clicks"),
+        Input({"type": "trait-btn", "index": ALL}, "n_clicks"),
         State("timeline-slider", "value"),
-        State("panel-state",     "data"),
+        State("panel-state", "data"),
         prevent_initial_call=True,
     )
     def update_panel_state(tap_store, _pa, _sb, _tb, day, current):
@@ -378,8 +387,8 @@ def make_app(run: dict) -> dash.Dash:
             return no_update
 
         prop = ctx.triggered[0]["prop_id"]
-        tid  = ctx.triggered_id
-        val  = ctx.triggered[0].get("value")
+        tid = ctx.triggered_id
+        val = ctx.triggered[0].get("value")
 
         # Graph tap (via decoupled store)
         if prop == "tap-store.data" and tap_store:
@@ -389,10 +398,10 @@ def make_app(run: dict) -> dash.Dash:
                 return {"type": "habitat", "hab_id": data["id"], "back": None}
             if kind == "edge":
                 return {
-                    "type":   "edge",
+                    "type": "edge",
                     "source": tap_store["data"]["source"],
                     "target": tap_store["data"]["target"],
-                    "back":   None,
+                    "back": None,
                 }
 
         if not isinstance(tid, dict):
@@ -421,10 +430,10 @@ def make_app(run: dict) -> dash.Dash:
             if sp_type == "species_global":
                 return {"type": "species_global", "species": data["species"], "back": current}
             return {
-                "type":    "species_in_hab",
-                "hab_id":  data["hab_id"],
+                "type": "species_in_hab",
+                "hab_id": data["hab_id"],
                 "species": data["species"],
-                "back":    current,
+                "back": current,
             }
 
         if kind == "trait-btn":
@@ -434,10 +443,10 @@ def make_app(run: dict) -> dash.Dash:
 
     # ── Panel rendering ────────────────────────────────────────────────────────
     @app.callback(
-        Output("panel-body",      "children"),
+        Output("panel-body", "children"),
         Output("panel-container", "style"),
-        Input("panel-state",      "data"),
-        Input("timeline-slider",  "value"),
+        Input("panel-state", "data"),
+        Input("timeline-slider", "value"),
     )
     def render_panel(state, day: int):
         if not state:
@@ -447,9 +456,9 @@ def make_app(run: dict) -> dash.Dash:
     # ── Trait comparison figure ────────────────────────────────────────────────
     @app.callback(
         Output("trait-comparison-graph", "figure"),
-        Input("view-mode",           "data"),
+        Input("view-mode", "data"),
         Input("tc-species-dropdown", "value"),
-        Input("tc-metric-dropdown",  "value"),
+        Input("tc-metric-dropdown", "value"),
         Input("tc-anagenesis-check", "value"),
     )
     def render_trait_comparison(mode, species, metrics, anagenesis_val):

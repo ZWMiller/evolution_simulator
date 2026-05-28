@@ -7,9 +7,9 @@ Usage:
     python3 check_run_progress_from_logs.py simulation_logs/2026-05-26_18-20-25
 """
 
+import datetime
 import json
 import sys
-import datetime
 from pathlib import Path
 
 
@@ -93,7 +93,7 @@ def main():
     if rate and eta_min is not None and not finished:
         eta_str = f"{eta_min:.0f} min"
         if eta_min > 90:
-            eta_str += f"  (~{eta_min/60:.1f} hr)"
+            eta_str += f"  (~{eta_min / 60:.1f} hr)"
         eta_clock = file_mtime + datetime.timedelta(minutes=eta_min)
         print(f"Rate:     {rate:.0f} weeks/min  →  ETA {eta_str}  (≈ {eta_clock.strftime('%H:%M')} local)")
 

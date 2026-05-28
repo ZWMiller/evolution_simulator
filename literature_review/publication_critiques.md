@@ -7,7 +7,7 @@ Notes on what a reviewer at *Artificial Life*, *PLOS Computational Biology*, or
 
 ## Framing
 
-**The wrong framing**: "This is a realistic model of biological evolution."  
+**The wrong framing**: "This is a realistic model of biological evolution."
 **The right framing**: "This is an abstract mathematical framework for studying evolutionary dynamics in multi-habitat ecology, using geometric fitness — a smooth, cosine-based fitness model — as a tractable analytical foundation. We characterize emergent phenomena (local adaptation, speciation, clade radiation) and discuss where smooth-landscape assumptions hold and where they break down."
 
 The distinction matters because every criticism below dissolves or becomes a "known limitation" when the paper positions itself as an abstract dynamical systems model rather than a biological claim.

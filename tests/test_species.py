@@ -1,19 +1,20 @@
 import numpy as np
 import pytest
+
 from evolution_simulator.creature import (
-    Creature,
     DEFAULT_TRAIT_GENE_INDICES,
     GENE_DIMS,
     PHENOTYPE_TRAITS,
+    Creature,
     compute_phenotype,
     compute_phenotype_matrix,
 )
-from evolution_simulator.species import SpeciesRegistry, ADJECTIVES, NOUNS
-
+from evolution_simulator.species import ADJECTIVES, NOUNS, SpeciesRegistry
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def make_creature(genes: np.ndarray, parent_species: str = "unknown") -> Creature:
     """Creature with explicit genes and pre-set species label."""
@@ -35,9 +36,7 @@ def far_genes(seed: int = 99) -> np.ndarray:
 
 # Compatibility subset (the signal C2 speciation keys on) and its complement.
 COMPAT_IDX = np.array(DEFAULT_TRAIT_GENE_INDICES["compatibility_genes"], dtype=int)
-NON_COMPAT_IDX = np.array(
-    sorted(set(range(GENE_DIMS)) - set(COMPAT_IDX.tolist())), dtype=int
-)
+NON_COMPAT_IDX = np.array(sorted(set(range(GENE_DIMS)) - set(COMPAT_IDX.tolist())), dtype=int)
 
 
 def _cos(a: np.ndarray, b: np.ndarray) -> float:
@@ -62,6 +61,7 @@ def with_new_noncompat(base: np.ndarray, seed: int) -> np.ndarray:
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def registry():
     return SpeciesRegistry()
@@ -80,6 +80,7 @@ def registry_with_founder():
 # Name pools
 # ---------------------------------------------------------------------------
 
+
 class TestNamePools:
     def test_adjectives_count(self):
         assert len(ADJECTIVES) == 100
@@ -97,6 +98,7 @@ class TestNamePools:
 # ---------------------------------------------------------------------------
 # Registry initialisation
 # ---------------------------------------------------------------------------
+
 
 class TestRegistryInit:
     def test_starts_empty(self, registry):
@@ -118,6 +120,7 @@ class TestRegistryInit:
 # ---------------------------------------------------------------------------
 # Founding species registration
 # ---------------------------------------------------------------------------
+
 
 class TestFoundingSpecies:
     def test_register_with_explicit_name(self, registry):
@@ -156,15 +159,14 @@ class TestFoundingSpecies:
     def test_multiple_founders_stored(self, registry):
         rng = np.random.default_rng(5)
         for i in range(5):
-            registry.register_founding_species(
-                rng.standard_normal(GENE_DIMS), name=f"Species {i}"
-            )
+            registry.register_founding_species(rng.standard_normal(GENE_DIMS), name=f"Species {i}")
         assert registry.species_count == 5
 
 
 # ---------------------------------------------------------------------------
 # assign_species — same species
 # ---------------------------------------------------------------------------
+
 
 class TestAssignSpeciesSame:
     def test_similar_genome_stays_in_parent_species(self, registry_with_founder):
@@ -194,6 +196,7 @@ class TestAssignSpeciesSame:
 # assign_species — isolation and bootstrap behaviour
 # ---------------------------------------------------------------------------
 
+
 class TestAssignSpeciesNew:
     def test_diverged_newborn_joins_nearest_species_no_candidate(self, registry_with_founder):
         """A newborn with diverged genes is assigned to the nearest living species.
@@ -222,6 +225,7 @@ class TestAssignSpeciesNew:
 # ---------------------------------------------------------------------------
 # Candidate promotion
 # ---------------------------------------------------------------------------
+
 
 def _inject_candidate(reg, genes, parent_species, detected_week=0):
     """
@@ -390,7 +394,7 @@ class TestCandidatePromotion:
 
         # Inject with 1 seed then add 2 more → peak_members should reach 3
         cid, first = _inject_candidate(reg, diverged_genes, founder_name)
-        extras = _add_members_to_candidate(reg, cid, 2, diverged_genes)
+        _add_members_to_candidate(reg, cid, 2, diverged_genes)
 
         cand = next(iter(reg._candidates.values()))
         assert cand["peak_members"] == 3
@@ -415,6 +419,7 @@ class TestCandidatePromotion:
 # ---------------------------------------------------------------------------
 # assign_species — drift-back / convergence protection
 # ---------------------------------------------------------------------------
+
 
 class TestDriftBack:
     def test_drift_back_to_ancestor_not_new_species(self):
@@ -478,6 +483,7 @@ class TestDriftBack:
 # similarity_to_all_progenitors
 # ---------------------------------------------------------------------------
 
+
 class TestSimilarityToAll:
     def test_returns_dict_for_all_species(self, registry_with_founder):
         reg, base_genes, name = registry_with_founder
@@ -508,6 +514,7 @@ class TestSimilarityToAll:
 # ---------------------------------------------------------------------------
 # Detection keys on the compatibility subset only
 # ---------------------------------------------------------------------------
+
 
 class TestCompatibilitySignal:
     def test_divergence_outside_compat_subset_does_not_speciate(self):
@@ -546,6 +553,7 @@ class TestCompatibilitySignal:
 # refresh_centroids
 # ---------------------------------------------------------------------------
 
+
 class TestRefreshCentroids:
     def test_centroid_is_member_compat_mean(self):
         rng = np.random.default_rng(4)
@@ -554,8 +562,7 @@ class TestRefreshCentroids:
         name = reg.register_founding_species(base, name="Mean Seeker")
 
         members = [
-            make_creature(near_genes(base, noise=0.001, seed=i), parent_species=name)
-            for i in range(5)
+            make_creature(near_genes(base, noise=0.001, seed=i), parent_species=name) for i in range(5)
         ]
         reg.refresh_centroids(members)
 
@@ -572,8 +579,8 @@ class TestRefreshCentroids:
         living = [make_creature(reg.progenitor_genes(a), parent_species=a) for _ in range(3)]
         reg.refresh_centroids(living)
 
-        assert reg.species_count == 2          # both remain in the historical registry
-        assert reg.living_species_count == 1   # only A is a live comparison target
+        assert reg.species_count == 2  # both remain in the historical registry
+        assert reg.living_species_count == 1  # only A is a live comparison target
         assert reg.centroid(b) is None
         assert reg.centroid(a) is not None
 
@@ -587,8 +594,7 @@ class TestRefreshCentroids:
 
         # Normal members near the founder.
         normal = [
-            make_creature(near_genes(base, noise=0.001, seed=i), parent_species=founder)
-            for i in range(3)
+            make_creature(near_genes(base, noise=0.001, seed=i), parent_species=founder) for i in range(3)
         ]
         # A diverging cluster (far in compat space) — inject as a k-means candidate.
         far_compat = with_new_compat(base, seed=70)
@@ -614,6 +620,7 @@ class TestRefreshCentroids:
 # Regression: a uniformly drifting population stays ONE species
 # ---------------------------------------------------------------------------
 
+
 class TestDriftRegression:
     def test_population_wide_drift_does_not_speciate(self):
         """The core bug: with a frozen progenitor, a whole population drifting
@@ -628,8 +635,7 @@ class TestDriftRegression:
         # remains internally coherent (all near the new location).
         drifted = with_new_compat(base, seed=33)
         living = [
-            make_creature(near_genes(drifted, noise=0.001, seed=i), parent_species=founder)
-            for i in range(6)
+            make_creature(near_genes(drifted, noise=0.001, seed=i), parent_species=founder) for i in range(6)
         ]
         newborn_genes = near_genes(drifted, noise=0.001, seed=500)
 
@@ -679,6 +685,7 @@ class TestUniqueNames:
 # Repr
 # ---------------------------------------------------------------------------
 
+
 class TestRepr:
     def test_repr_contains_species_count(self, registry_with_founder):
         reg, _, _ = registry_with_founder
@@ -696,6 +703,7 @@ class TestRepr:
 # ---------------------------------------------------------------------------
 # Phenotype computation (anagenesis axis)
 # ---------------------------------------------------------------------------
+
 
 class TestPhenotype:
     def test_matches_per_creature_owa(self):
@@ -721,6 +729,7 @@ class TestPhenotype:
 # ---------------------------------------------------------------------------
 # Spherical k-means + K-selection
 # ---------------------------------------------------------------------------
+
 
 class TestClustering:
     def test_two_isolated_blobs_select_k2(self):
@@ -750,12 +759,10 @@ class TestClustering:
 # Sub-cluster split detector (cladogenesis)
 # ---------------------------------------------------------------------------
 
+
 class TestSubclusterSplit:
     def _two_clusters(self, reg, base, founder, n_near=5, n_far=5):
-        near = [
-            make_creature(near_genes(base, 0.001, seed=i), parent_species=founder)
-            for i in range(n_near)
-        ]
+        near = [make_creature(near_genes(base, 0.001, seed=i), parent_species=founder) for i in range(n_near)]
         far_base = with_new_compat(base, seed=777)
         far = [
             make_creature(near_genes(far_base, 0.001, seed=100 + i), parent_species=founder)
@@ -800,10 +807,7 @@ class TestSubclusterSplit:
         reg = SpeciesRegistry()
         base = rng.standard_normal(GENE_DIMS)
         founder = reg.register_founding_species(base, name="Root")
-        members = [
-            make_creature(near_genes(base, 0.01, seed=i), parent_species=founder)
-            for i in range(10)
-        ]
+        members = [make_creature(near_genes(base, 0.01, seed=i), parent_species=founder) for i in range(10)]
         reg.detect_subcluster_splits(members, current_week=10)
         assert len(reg._candidates) == 0
 
@@ -811,6 +815,7 @@ class TestSubclusterSplit:
 # ---------------------------------------------------------------------------
 # Anagenesis detector (in-place transformation)
 # ---------------------------------------------------------------------------
+
 
 class TestAnagenesis:
     def test_phenotype_drift_mints_descendant_and_respeciates(self):
@@ -821,8 +826,7 @@ class TestAnagenesis:
 
         delta = rng.standard_normal(GENE_DIMS)  # whole-lineage directional shift
         members = [
-            make_creature(g0 + delta + 0.001 * rng.standard_normal(GENE_DIMS),
-                          parent_species=founder)
+            make_creature(g0 + delta + 0.001 * rng.standard_normal(GENE_DIMS), parent_species=founder)
             for _ in range(6)
         ]
         type_ph = compute_phenotype(g0)
@@ -846,10 +850,7 @@ class TestAnagenesis:
         reg = SpeciesRegistry()
         g0 = rng.standard_normal(GENE_DIMS)
         founder = reg.register_founding_species(g0, name="Ancestor")
-        members = [
-            make_creature(near_genes(g0, 0.001, seed=i), parent_species=founder)
-            for i in range(6)
-        ]
+        members = [make_creature(near_genes(g0, 0.001, seed=i), parent_species=founder) for i in range(6)]
         type_ph = compute_phenotype(g0)
         centroid = compute_phenotype_matrix(np.stack([m.genes for m in members])).mean(axis=0)
         # below the observed (centred) drift → no trigger
@@ -865,8 +866,7 @@ class TestAnagenesis:
         g0 = rng.standard_normal(GENE_DIMS)
         founder = reg.register_founding_species(g0, name="Ancestor")
         members = [
-            make_creature(g0 + rng.standard_normal(GENE_DIMS), parent_species=founder)
-            for _ in range(6)
+            make_creature(g0 + rng.standard_normal(GENE_DIMS), parent_species=founder) for _ in range(6)
         ]
         # Force an active split candidate for the founder.
         reg._candidates["cand_x"] = {
@@ -889,8 +889,7 @@ class TestAnagenesis:
         founder = reg.register_founding_species(g0, name="Ancestor")
         delta = rng.standard_normal(GENE_DIMS)
         members = [
-            make_creature(g0 + delta + 0.001 * rng.standard_normal(GENE_DIMS),
-                          parent_species=founder)
+            make_creature(g0 + delta + 0.001 * rng.standard_normal(GENE_DIMS), parent_species=founder)
             for _ in range(6)
         ]
         type_ph = compute_phenotype(g0)
@@ -915,8 +914,10 @@ class TestAnagenesis:
         g0 = rng.standard_normal(GENE_DIMS)
         founder = reg.register_founding_species(g0, name="Ancestor")
         drifted = [
-            make_creature(g0 + rng.standard_normal(GENE_DIMS) + 0.001 * rng.standard_normal(GENE_DIMS),
-                          parent_species=founder)
+            make_creature(
+                g0 + rng.standard_normal(GENE_DIMS) + 0.001 * rng.standard_normal(GENE_DIMS),
+                parent_species=founder,
+            )
             for _ in range(6)
         ]
         type_ph = compute_phenotype(g0)
@@ -924,9 +925,8 @@ class TestAnagenesis:
         reg.anagenesis_threshold = _cos(cen - 0.5, type_ph - 0.5) + 0.005
         reg.anagenesis_weeks = 50
 
-        reg.detect_anagenesis(drifted, current_week=100)        # clock starts
+        reg.detect_anagenesis(drifted, current_week=100)  # clock starts
         # A coherent (near-type) population appears → above threshold → clock clears.
-        coherent = [make_creature(near_genes(g0, 0.001, seed=i), parent_species=founder)
-                    for i in range(6)]
+        coherent = [make_creature(near_genes(g0, 0.001, seed=i), parent_species=founder) for i in range(6)]
         assert reg.detect_anagenesis(coherent, current_week=120) == []
         assert "Ancestor" not in reg._anagenesis_pending

@@ -12,29 +12,52 @@ Opens a Dash web app at http://127.0.0.1:8050
 
 import argparse
 import json
-import sys
 from pathlib import Path
 
 import dash
-from dash import dcc, html, Input, Output, callback
-import plotly.graph_objects as go
 import plotly.express as px
-
+import plotly.graph_objects as go
+from dash import Input, Output, dcc, html
 
 # ---------------------------------------------------------------------------
 # Data loading
 # ---------------------------------------------------------------------------
 
 ALL_TRAITS = [
-    "fecundity", "reproduction_time", "weeks_to_sexual_viability",
-    "parental_investment", "reproduction_likelihood", "metabolism",
-    "water_efficiency", "max_lifespan", "disease_resistance", "immune_response",
-    "stress_tolerance", "heat_tolerance", "cold_tolerance", "drought_tolerance",
-    "hibernation_tendency", "migration_likelihood", "risk_tolerance", "aggression",
-    "territorial", "social_tendency", "nocturnal_tendency", "size", "strength",
-    "speed", "camouflage", "foraging_ability", "intelligence", "adaptability",
-    "pack_hunting", "scavenging_tendency", "communication", "mutation_rate",
-    "selectivity", "base_predation_rate",
+    "fecundity",
+    "reproduction_time",
+    "weeks_to_sexual_viability",
+    "parental_investment",
+    "reproduction_likelihood",
+    "metabolism",
+    "water_efficiency",
+    "max_lifespan",
+    "disease_resistance",
+    "immune_response",
+    "stress_tolerance",
+    "heat_tolerance",
+    "cold_tolerance",
+    "drought_tolerance",
+    "hibernation_tendency",
+    "migration_likelihood",
+    "risk_tolerance",
+    "aggression",
+    "territorial",
+    "social_tendency",
+    "nocturnal_tendency",
+    "size",
+    "strength",
+    "speed",
+    "camouflage",
+    "foraging_ability",
+    "intelligence",
+    "adaptability",
+    "pack_hunting",
+    "scavenging_tendency",
+    "communication",
+    "mutation_rate",
+    "selectivity",
+    "base_predation_rate",
 ]
 
 TRAIT_OPTIONS = [{"label": t.replace("_", " ").title(), "value": t} for t in ALL_TRAITS]
@@ -72,28 +95,34 @@ def load_run(log_dir: Path) -> dict:
     for d in days:
         week_n = d["week"]
 
-        global_series.append({
-            "week": week_n,
-            "population": d["global_population"],
-            "species_count": d["global_species_count"],
-        })
+        global_series.append(
+            {
+                "week": week_n,
+                "population": d["global_population"],
+                "species_count": d["global_species_count"],
+            }
+        )
 
         for ev in d.get("speciation_events", []):
-            speciation_events.append({
-                "week": week_n,
-                "new_species": ev["new_species"],
-                "parent_species": ev["parent_species"],
-                "event_type": ev.get("event_type", "cladogenesis"),
-            })
+            speciation_events.append(
+                {
+                    "week": week_n,
+                    "new_species": ev["new_species"],
+                    "parent_species": ev["parent_species"],
+                    "event_type": ev.get("event_type", "cladogenesis"),
+                }
+            )
 
         for hab_id in habitat_ids:
             hab_log = d.get("habitats", {}).get(hab_id, {})
-            habitat_series.append({
-                "week": week_n,
-                "hab_id": hab_id,
-                "hab_name": habitat_names.get(hab_id, hab_id),
-                "population": hab_log.get("population", 0),
-            })
+            habitat_series.append(
+                {
+                    "week": week_n,
+                    "hab_id": hab_id,
+                    "hab_name": habitat_names.get(hab_id, hab_id),
+                    "population": hab_log.get("population", 0),
+                }
+            )
 
         for sp_name, sp_data in d.get("species_stats", {}).items():
             row = {
@@ -156,6 +185,7 @@ def load_run(log_dir: Path) -> dict:
 # Figure helpers
 # ---------------------------------------------------------------------------
 
+
 def _speciation_shapes(events: list[dict], y0: float = 0, y1: float = 1, yref: str = "paper"):
     shapes, annotations = [], []
     for ev in events:
@@ -164,17 +194,29 @@ def _speciation_shapes(events: list[dict], y0: float = 0, y1: float = 1, yref: s
         is_ana = ev.get("event_type") == "anagenesis"
         line_color = "rgba(232,162,61,0.55)" if is_ana else "rgba(150,150,150,0.4)"
         text_color = "rgba(232,162,61,0.8)" if is_ana else "rgba(120,120,120,0.7)"
-        shapes.append(dict(
-            type="line", x0=ev["week"], x1=ev["week"],
-            y0=y0, y1=y1, yref=yref,
-            line=dict(color=line_color, width=1, dash="dot"),
-        ))
-        annotations.append(dict(
-            x=ev["week"], y=y1, yref=yref, xanchor="left",
-            text=ev["new_species"], showarrow=False,
-            font=dict(size=8, color=text_color),
-            textangle=-60,
-        ))
+        shapes.append(
+            dict(
+                type="line",
+                x0=ev["week"],
+                x1=ev["week"],
+                y0=y0,
+                y1=y1,
+                yref=yref,
+                line=dict(color=line_color, width=1, dash="dot"),
+            )
+        )
+        annotations.append(
+            dict(
+                x=ev["week"],
+                y=y1,
+                yref=yref,
+                xanchor="left",
+                text=ev["new_species"],
+                showarrow=False,
+                font=dict(size=8, color=text_color),
+                textangle=-60,
+            )
+        )
     return shapes, annotations
 
 
@@ -185,16 +227,25 @@ def fig_global_overview(run: dict) -> go.Figure:
     sp_count = [r["species_count"] for r in gs]
 
     fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=weeks, y=pop, name="Global Population",
-        line=dict(color="#2196F3", width=2),
-        fill="tozeroy", fillcolor="rgba(33,150,243,0.1)",
-    ))
-    fig.add_trace(go.Scatter(
-        x=weeks, y=sp_count, name="Species Count",
-        line=dict(color="#FF9800", width=2, dash="dash"),
-        yaxis="y2",
-    ))
+    fig.add_trace(
+        go.Scatter(
+            x=weeks,
+            y=pop,
+            name="Global Population",
+            line=dict(color="#2196F3", width=2),
+            fill="tozeroy",
+            fillcolor="rgba(33,150,243,0.1)",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=weeks,
+            y=sp_count,
+            name="Species Count",
+            line=dict(color="#FF9800", width=2, dash="dash"),
+            yaxis="y2",
+        )
+    )
 
     shapes, annotations = _speciation_shapes(run["speciation_events"])
     fig.update_layout(
@@ -224,14 +275,16 @@ def fig_habitat_population(run: dict) -> go.Figure:
 
     fig = go.Figure()
     for i, hid in enumerate(hab_ids):
-        fig.add_trace(go.Scatter(
-            x=by_hab[hid]["weeks"],
-            y=by_hab[hid]["pop"],
-            name=f'{hab_names[hid]} ({run["habitat_types"][hid]})',
-            line=dict(color=colors[i % len(colors)], width=2),
-            stackgroup="one",
-            fill="tonexty",
-        ))
+        fig.add_trace(
+            go.Scatter(
+                x=by_hab[hid]["weeks"],
+                y=by_hab[hid]["pop"],
+                name=f"{hab_names[hid]} ({run['habitat_types'][hid]})",
+                line=dict(color=colors[i % len(colors)], width=2),
+                stackgroup="one",
+                fill="tonexty",
+            )
+        )
 
     shapes, annotations = _speciation_shapes(run["speciation_events"])
     fig.update_layout(
@@ -265,10 +318,14 @@ def fig_species_population(run: dict, selected_species: list[str]) -> go.Figure:
     for i, sp in enumerate(selected_species):
         if sp not in by_sp:
             continue
-        fig.add_trace(go.Scatter(
-            x=by_sp[sp]["weeks"], y=by_sp[sp]["count"],
-            name=sp, line=dict(color=colors[i % len(colors)], width=2),
-        ))
+        fig.add_trace(
+            go.Scatter(
+                x=by_sp[sp]["weeks"],
+                y=by_sp[sp]["count"],
+                name=sp,
+                line=dict(color=colors[i % len(colors)], width=2),
+            )
+        )
 
     shapes, annotations = _speciation_shapes(run["speciation_events"])
     fig.update_layout(
@@ -304,10 +361,14 @@ def fig_species_trait(run: dict, selected_species: list[str], trait: str) -> go.
     for i, sp in enumerate(selected_species):
         if sp not in by_sp:
             continue
-        fig.add_trace(go.Scatter(
-            x=by_sp[sp]["weeks"], y=by_sp[sp]["vals"],
-            name=sp, line=dict(color=colors[i % len(colors)], width=2),
-        ))
+        fig.add_trace(
+            go.Scatter(
+                x=by_sp[sp]["weeks"],
+                y=by_sp[sp]["vals"],
+                name=sp,
+                line=dict(color=colors[i % len(colors)], width=2),
+            )
+        )
 
     fig.update_layout(
         title=f"Mean {trait.replace('_', ' ').title()} Over Time",
@@ -345,24 +406,29 @@ def fig_adaptation_by_habitat(run: dict, hab_id: str) -> go.Figure:
     fig = go.Figure()
     for i, sp in enumerate(species_list):
         color = colors[i % len(colors)]
-        fig.add_trace(go.Scatter(
-            x=sp_food[sp]["weeks"], y=sp_food[sp]["vals"],
-            name=f"{sp} (food)",
-            line=dict(color=color, width=1.5),
-            legendgroup=sp,
-        ))
-        fig.add_trace(go.Scatter(
-            x=sp_water[sp]["weeks"], y=sp_water[sp]["vals"],
-            name=f"{sp} (water)",
-            line=dict(color=color, width=1.5, dash="dot"),
-            legendgroup=sp,
-            showlegend=False,
-        ))
+        fig.add_trace(
+            go.Scatter(
+                x=sp_food[sp]["weeks"],
+                y=sp_food[sp]["vals"],
+                name=f"{sp} (food)",
+                line=dict(color=color, width=1.5),
+                legendgroup=sp,
+            )
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=sp_water[sp]["weeks"],
+                y=sp_water[sp]["vals"],
+                name=f"{sp} (water)",
+                line=dict(color=color, width=1.5, dash="dot"),
+                legendgroup=sp,
+                showlegend=False,
+            )
+        )
 
     hab_name = run["habitat_names"].get(hab_id, hab_id)
     hab_type = run["habitat_types"].get(hab_id, "")
-    fig.add_hline(y=0.5, line_dash="dash", line_color="gray",
-                  annotation_text="unadapted baseline (0.5)")
+    fig.add_hline(y=0.5, line_dash="dash", line_color="gray", annotation_text="unadapted baseline (0.5)")
     fig.update_layout(
         title=f"Habitat Adaptation: {hab_name} ({hab_type})  — solid=food, dotted=water",
         xaxis_title="Week",
@@ -385,25 +451,28 @@ def fig_rk_tradeoff(run: dict, week: int) -> go.Figure:
     size = [max(5, r["total_count"]) for r in rows]
 
     fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=fecundity, y=pred_rate,
-        mode="markers+text",
-        text=species,
-        textposition="top center",
-        marker=dict(
-            size=[s ** 0.5 * 3 for s in size],
-            color=size,
-            colorscale="Viridis",
-            showscale=True,
-            colorbar=dict(title="Population"),
-        ),
-        hovertemplate=(
-            "<b>%{text}</b><br>"
-            "Fecundity: %{x:.3f}<br>"
-            "Predation Rate: %{y:.5f}<br>"
-            "Population: %{marker.color}<extra></extra>"
-        ),
-    ))
+    fig.add_trace(
+        go.Scatter(
+            x=fecundity,
+            y=pred_rate,
+            mode="markers+text",
+            text=species,
+            textposition="top center",
+            marker=dict(
+                size=[s**0.5 * 3 for s in size],
+                color=size,
+                colorscale="Viridis",
+                showscale=True,
+                colorbar=dict(title="Population"),
+            ),
+            hovertemplate=(
+                "<b>%{text}</b><br>"
+                "Fecundity: %{x:.3f}<br>"
+                "Predation Rate: %{y:.5f}<br>"
+                "Population: %{marker.color}<extra></extra>"
+            ),
+        )
+    )
     fig.update_layout(
         title=f"r/K Tradeoff — Week {week}  (bubble size ∝ √population)",
         xaxis_title="Mean Fecundity",
@@ -419,8 +488,7 @@ def fig_trait_heatmap(run: dict, week: int, hab_id: str | None = None) -> go.Fig
     row-normalised so different-scale traits are visually comparable.
     """
     if hab_id:
-        rows = [r for r in run["species_per_hab"]
-                if r["hab_id"] == hab_id and r["week"] == week]
+        rows = [r for r in run["species_per_hab"] if r["hab_id"] == hab_id and r["week"] == week]
     else:
         rows = [r for r in run["species_global"] if r["week"] == week]
 
@@ -437,14 +505,17 @@ def fig_trait_heatmap(run: dict, week: int, hab_id: str | None = None) -> go.Fig
         normed = [(v - mn) / rng if rng > 0 else 0.5 for v in vals]
         matrix.append(normed)
 
-    fig = go.Figure(data=go.Heatmap(
-        z=matrix,
-        x=species,
-        y=[t.replace("_", " ") for t in ALL_TRAITS],
-        colorscale="Viridis",
-        zmin=0, zmax=1,
-        hovertemplate="Species: %{x}<br>Trait: %{y}<br>Normalised: %{z:.3f}<extra></extra>",
-    ))
+    fig = go.Figure(
+        data=go.Heatmap(
+            z=matrix,
+            x=species,
+            y=[t.replace("_", " ") for t in ALL_TRAITS],
+            colorscale="Viridis",
+            zmin=0,
+            zmax=1,
+            hovertemplate="Species: %{x}<br>Trait: %{y}<br>Normalised: %{z:.3f}<extra></extra>",
+        )
+    )
     title_suffix = f" in {run['habitat_names'].get(hab_id, hab_id)}" if hab_id else " (global)"
     fig.update_layout(
         title=f"Trait snapshot — Week {week}{title_suffix}  (normalised to full-run range)",
@@ -459,6 +530,7 @@ def fig_trait_heatmap(run: dict, week: int, hab_id: str | None = None) -> go.Fig
 # Layout
 # ---------------------------------------------------------------------------
 
+
 def build_layout(run: dict) -> html.Div:
     summary = run["summary"]
     extinct_badge = (
@@ -468,136 +540,212 @@ def build_layout(run: dict) -> html.Div:
     )
 
     hab_options = [
-        {"label": f'{run["habitat_names"][h]} ({run["habitat_types"][h]})', "value": h}
+        {"label": f"{run['habitat_names'][h]} ({run['habitat_types'][h]})", "value": h}
         for h in run["habitat_ids"]
     ]
     species_options = [{"label": s, "value": s} for s in run["all_species"]]
 
-    return html.Div([
-        # Header
-        html.Div([
-            html.H2("Evolution Simulator — Log Visualiser",
-                    style={"margin": "0 0 4px 0"}),
-            html.Div([
-                html.Span(f"Habitats: {len(run['habitat_ids'])}  ·  "),
-                html.Span(f"Weeks: {run['weeks_simulated']}  ·  "),
-                html.Span(f"Species ever: {summary['total_species_ever']}  ·  "),
-                html.Span(f"Speciations: {summary['total_speciation_events']}  ·  "),
-                html.Span("Status: "), extinct_badge,
-            ], style={"fontSize": "13px", "color": "#555"}),
-        ], style={"padding": "16px 24px 8px", "borderBottom": "1px solid #ddd",
-                  "backgroundColor": "#f8f9fa"}),
-
-        dcc.Tabs(id="tabs", value="overview", children=[
-
-            # Tab 1: Overview
-            dcc.Tab(label="Overview", value="overview", children=[
-                dcc.Graph(id="fig-global", figure=fig_global_overview(run)),
-                dcc.Graph(id="fig-hab-pop", figure=fig_habitat_population(run)),
-            ]),
-
-            # Tab 2: Habitat Adaptation
-            dcc.Tab(label="Habitat Adaptation", value="adaptation", children=[
-                html.Div([
-                    html.Label("Habitat:", style={"fontWeight": "bold", "marginRight": 8}),
-                    dcc.Dropdown(
-                        id="adapt-hab-select",
-                        options=hab_options,
-                        value=run["habitat_ids"][0],
-                        clearable=False,
-                        style={"width": 320},
+    return html.Div(
+        [
+            # Header
+            html.Div(
+                [
+                    html.H2("Evolution Simulator — Log Visualiser", style={"margin": "0 0 4px 0"}),
+                    html.Div(
+                        [
+                            html.Span(f"Habitats: {len(run['habitat_ids'])}  ·  "),
+                            html.Span(f"Weeks: {run['weeks_simulated']}  ·  "),
+                            html.Span(f"Species ever: {summary['total_species_ever']}  ·  "),
+                            html.Span(f"Speciations: {summary['total_speciation_events']}  ·  "),
+                            html.Span("Status: "),
+                            extinct_badge,
+                        ],
+                        style={"fontSize": "13px", "color": "#555"},
                     ),
-                ], style={"padding": "12px 24px 0"}),
-                dcc.Graph(id="fig-adaptation"),
-            ]),
-
-            # Tab 3: Species Tracker
-            dcc.Tab(label="Species Tracker", value="species", children=[
-                html.Div([
-                    html.Div([
-                        html.Label("Species (multi-select):",
-                                   style={"fontWeight": "bold", "marginRight": 8}),
-                        dcc.Dropdown(
-                            id="sp-select",
-                            options=species_options,
-                            value=run["all_species"][:3],
-                            multi=True,
-                            style={"width": 600},
-                        ),
-                    ], style={"marginBottom": 8}),
-                    html.Div([
-                        html.Label("Trait to plot:",
-                                   style={"fontWeight": "bold", "marginRight": 8}),
-                        dcc.Dropdown(
-                            id="sp-trait-select",
-                            options=TRAIT_OPTIONS,
-                            value="fecundity",
-                            clearable=False,
-                            style={"width": 320},
-                        ),
-                    ]),
-                ], style={"padding": "12px 24px 0"}),
-                dcc.Graph(id="fig-sp-pop"),
-                dcc.Graph(id="fig-sp-trait"),
-            ]),
-
-            # Tab 4: r/K Tradeoff
-            dcc.Tab(label="r/K Tradeoff", value="rk", children=[
-                html.Div([
-                    html.Label(f"Week (1 – {run['weeks_simulated']}):",
-                               style={"fontWeight": "bold", "marginRight": 8}),
-                    dcc.Slider(
-                        id="rk-week-slider",
-                        min=1, max=run["weeks_simulated"],
-                        step=1,
-                        value=min(32, run["weeks_simulated"]),
-                        marks={w: str(w) for w in
-                               range(0, run["weeks_simulated"] + 1,
-                                     max(1, run["weeks_simulated"] // 10))},
-                        tooltip={"placement": "bottom", "always_visible": True},
+                ],
+                style={
+                    "padding": "16px 24px 8px",
+                    "borderBottom": "1px solid #ddd",
+                    "backgroundColor": "#f8f9fa",
+                },
+            ),
+            dcc.Tabs(
+                id="tabs",
+                value="overview",
+                children=[
+                    # Tab 1: Overview
+                    dcc.Tab(
+                        label="Overview",
+                        value="overview",
+                        children=[
+                            dcc.Graph(id="fig-global", figure=fig_global_overview(run)),
+                            dcc.Graph(id="fig-hab-pop", figure=fig_habitat_population(run)),
+                        ],
                     ),
-                ], style={"padding": "12px 24px 0"}),
-                dcc.Graph(id="fig-rk"),
-            ]),
-
-            # Tab 5: Trait Heatmap
-            dcc.Tab(label="Trait Heatmap", value="heatmap", children=[
-                html.Div([
-                    html.Div([
-                        html.Label("Scope:", style={"fontWeight": "bold", "marginRight": 8}),
-                        dcc.Dropdown(
-                            id="heatmap-scope",
-                            options=[{"label": "Global (all species)", "value": "__global__"}]
-                                    + hab_options,
-                            value="__global__",
-                            clearable=False,
-                            style={"width": 380},
-                        ),
-                    ], style={"marginBottom": 8}),
-                    html.Div([
-                        html.Label(f"Week (1 – {run['last_data_week']}):",
-                                   style={"fontWeight": "bold", "marginRight": 8}),
-                        dcc.Slider(
-                            id="heatmap-week-slider",
-                            min=1, max=run["last_data_week"],
-                            step=1,
-                            value=run["last_data_week"],
-                            marks={w: str(w) for w in
-                                   range(0, run["last_data_week"] + 1,
-                                         max(1, run["last_data_week"] // 10))},
-                            tooltip={"placement": "bottom", "always_visible": True},
-                        ),
-                    ]),
-                ], style={"padding": "12px 24px 0"}),
-                dcc.Graph(id="fig-heatmap"),
-            ]),
-        ]),
-    ])
+                    # Tab 2: Habitat Adaptation
+                    dcc.Tab(
+                        label="Habitat Adaptation",
+                        value="adaptation",
+                        children=[
+                            html.Div(
+                                [
+                                    html.Label("Habitat:", style={"fontWeight": "bold", "marginRight": 8}),
+                                    dcc.Dropdown(
+                                        id="adapt-hab-select",
+                                        options=hab_options,
+                                        value=run["habitat_ids"][0],
+                                        clearable=False,
+                                        style={"width": 320},
+                                    ),
+                                ],
+                                style={"padding": "12px 24px 0"},
+                            ),
+                            dcc.Graph(id="fig-adaptation"),
+                        ],
+                    ),
+                    # Tab 3: Species Tracker
+                    dcc.Tab(
+                        label="Species Tracker",
+                        value="species",
+                        children=[
+                            html.Div(
+                                [
+                                    html.Div(
+                                        [
+                                            html.Label(
+                                                "Species (multi-select):",
+                                                style={"fontWeight": "bold", "marginRight": 8},
+                                            ),
+                                            dcc.Dropdown(
+                                                id="sp-select",
+                                                options=species_options,
+                                                value=run["all_species"][:3],
+                                                multi=True,
+                                                style={"width": 600},
+                                            ),
+                                        ],
+                                        style={"marginBottom": 8},
+                                    ),
+                                    html.Div(
+                                        [
+                                            html.Label(
+                                                "Trait to plot:",
+                                                style={"fontWeight": "bold", "marginRight": 8},
+                                            ),
+                                            dcc.Dropdown(
+                                                id="sp-trait-select",
+                                                options=TRAIT_OPTIONS,
+                                                value="fecundity",
+                                                clearable=False,
+                                                style={"width": 320},
+                                            ),
+                                        ]
+                                    ),
+                                ],
+                                style={"padding": "12px 24px 0"},
+                            ),
+                            dcc.Graph(id="fig-sp-pop"),
+                            dcc.Graph(id="fig-sp-trait"),
+                        ],
+                    ),
+                    # Tab 4: r/K Tradeoff
+                    dcc.Tab(
+                        label="r/K Tradeoff",
+                        value="rk",
+                        children=[
+                            html.Div(
+                                [
+                                    html.Label(
+                                        f"Week (1 – {run['weeks_simulated']}):",
+                                        style={"fontWeight": "bold", "marginRight": 8},
+                                    ),
+                                    dcc.Slider(
+                                        id="rk-week-slider",
+                                        min=1,
+                                        max=run["weeks_simulated"],
+                                        step=1,
+                                        value=min(32, run["weeks_simulated"]),
+                                        marks={
+                                            w: str(w)
+                                            for w in range(
+                                                0,
+                                                run["weeks_simulated"] + 1,
+                                                max(1, run["weeks_simulated"] // 10),
+                                            )
+                                        },
+                                        tooltip={"placement": "bottom", "always_visible": True},
+                                    ),
+                                ],
+                                style={"padding": "12px 24px 0"},
+                            ),
+                            dcc.Graph(id="fig-rk"),
+                        ],
+                    ),
+                    # Tab 5: Trait Heatmap
+                    dcc.Tab(
+                        label="Trait Heatmap",
+                        value="heatmap",
+                        children=[
+                            html.Div(
+                                [
+                                    html.Div(
+                                        [
+                                            html.Label(
+                                                "Scope:", style={"fontWeight": "bold", "marginRight": 8}
+                                            ),
+                                            dcc.Dropdown(
+                                                id="heatmap-scope",
+                                                options=[
+                                                    {"label": "Global (all species)", "value": "__global__"}
+                                                ]
+                                                + hab_options,
+                                                value="__global__",
+                                                clearable=False,
+                                                style={"width": 380},
+                                            ),
+                                        ],
+                                        style={"marginBottom": 8},
+                                    ),
+                                    html.Div(
+                                        [
+                                            html.Label(
+                                                f"Week (1 – {run['last_data_week']}):",
+                                                style={"fontWeight": "bold", "marginRight": 8},
+                                            ),
+                                            dcc.Slider(
+                                                id="heatmap-week-slider",
+                                                min=1,
+                                                max=run["last_data_week"],
+                                                step=1,
+                                                value=run["last_data_week"],
+                                                marks={
+                                                    w: str(w)
+                                                    for w in range(
+                                                        0,
+                                                        run["last_data_week"] + 1,
+                                                        max(1, run["last_data_week"] // 10),
+                                                    )
+                                                },
+                                                tooltip={"placement": "bottom", "always_visible": True},
+                                            ),
+                                        ]
+                                    ),
+                                ],
+                                style={"padding": "12px 24px 0"},
+                            ),
+                            dcc.Graph(id="fig-heatmap"),
+                        ],
+                    ),
+                ],
+            ),
+        ]
+    )
 
 
 # ---------------------------------------------------------------------------
 # App + callbacks
 # ---------------------------------------------------------------------------
+
 
 def make_app(run: dict) -> dash.Dash:
     app = dash.Dash(__name__, title="Evo Sim Visualiser")
@@ -643,6 +791,7 @@ def make_app(run: dict) -> dash.Dash:
 # Entry point
 # ---------------------------------------------------------------------------
 
+
 def _latest_run(base: Path) -> Path:
     runs = sorted(base.glob("*/week_00001.json"))
     if not runs:
@@ -653,7 +802,9 @@ def _latest_run(base: Path) -> Path:
 def main():
     parser = argparse.ArgumentParser(description="Visualise an evolution simulator log")
     parser.add_argument(
-        "log_dir", nargs="?", default=None,
+        "log_dir",
+        nargs="?",
+        default=None,
         help="Path to a simulation log directory (default: most recent under simulation_logs/)",
     )
     parser.add_argument("--port", type=int, default=8050)
