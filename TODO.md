@@ -228,7 +228,53 @@ This enables:
 
 ---
 
-## Backlog
+## Experiments
+
+### Cladogenesis bimodality diagnostic script
+
+Build `experiments/cladogenesis_bimodality.py` — a standalone script that makes
+the k-means split detector's bimodality *visible* as a density histogram.
+
+**Setup:**
+- Single founding species mirrored into two isolated habitats (different types,
+  e.g. Forest + Tundra, no migration routes).
+- Run a custom simulation loop (don't use `SimulationRunner.run()` — drive
+  `habitat.simulate_week()` manually so we can intercept at each speciation check).
+
+**What to plot (every `respeciate_every` weeks):**
+The user's instinct for cosine similarity is correct but needs the right framing.
+Cosine similarity of each creature to the *shared centroid* compresses bimodality
+(both clusters pull the centroid to their midpoint, so everyone looks equally
+far — unimodal distribution). Instead, use the **k-means separation axis**:
+
+1. Run k-means K=2 on the 245-dim compatibility gene vectors of all living members
+   of the species (reuse `_spherical_kmeans` from `species.py`).
+2. Compute the unit separation axis: `axis = normalise(centroid_2 − centroid_1)`.
+3. Project each creature: `score_i = dot(compat_genes_i, axis)`.
+4. Plot a density histogram of the N scores.
+
+Interpretation:
+- **Unimodal** (single peak): population is coherent, no split emerging yet.
+- **Bimodal** (two peaks): two sub-clusters are pulling apart along this axis —
+  exactly what the k-means detector is measuring. Peaks separate over time as
+  the habitats drive divergence.
+
+This is cleaner than pairwise cosine similarity (N values vs N² pairs) and
+directly visualises the signal the split detector acts on.
+
+**Also useful:** plot a second panel showing within-cluster vs cross-cluster mean
+cosine similarity over time — when the cross-cluster line falls through
+`split_isolation_threshold` (0.75), that's the moment the detector fires.
+
+**Output:** Save one PNG (or plotly HTML) per speciation-check week to
+`experiments/bimodality_output/<timestamp>/week_NNNNN.png`. Print a summary of
+when (if) the split fires and what K was selected.
+
+**Dependencies:** plotly is already available; no new deps needed. Reuse
+`_spherical_kmeans` and `Creature.COMPATIBILITY_GENE_INDICES` from the main
+package rather than reimplementing.
+
+---
 
 ### Intermediate / stepping-stone habitats between connected pairs
 
