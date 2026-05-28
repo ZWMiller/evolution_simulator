@@ -236,7 +236,7 @@ control output volume: `stats_every` (per-species/habitat statistics) and `event
 
 ## Configuration
 
-Copy `evolution_simulator/config/simulation.toml` and edit:
+Copy `simulation_configs/simulation.toml` and edit:
 
 ```toml
 [simulation]
@@ -276,7 +276,7 @@ name = "Northern Desert"
 **On timescales:** a generation is roughly `weeks_to_sexual_viability` (~25–35 weeks), so the
 generation-scaled gates above make speciation rare and mostly legible in long runs (thousands of
 weeks). Smoke-test for correctness; observe emergence over long runs. Ready-made long configs live
-in `configs/`.
+in `simulation_configs/`.
 
 ---
 
@@ -320,7 +320,7 @@ evolution_simulator/
 ├── visualizer_advanced.py        ← interactive Dash app
 ├── visualizer/                   ← data loading, figures, panels for the advanced UI
 ├── experiments/                  ← recorded calibration experiments (e.g. drift_trajectory.py)
-├── configs/                      ← ready-made long-run configs
+├── simulation_configs/           ← ready-made long-run configs
 ├── evolution_simulator/
 │   ├── creature.py               ← gene/trait system, phenotype, reproduction
 │   ├── habitat.py                ← resource geometry, predation, migration, stats

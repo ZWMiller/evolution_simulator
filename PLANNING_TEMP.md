@@ -75,7 +75,7 @@ newborn removal.
   miss; update `assign_species` to use Option A fallback.
 - `evolution_simulator/species.py`: verify `promote_candidates` only handles
   k-means-sourced candidates.
-- `evolution_simulator/config/simulation.toml`: update `split_isolation_threshold`
+- `simulation_configs/simulation.toml`: update `split_isolation_threshold`
   default to 0.75.
 - Long-run configs: same threshold update, consider tightening `respeciate_every`.
 - `CLAUDE.md`: update the speciation mechanisms section.
@@ -127,6 +127,6 @@ Requires `import random` at top of file. Makes a full run reproducible from
 
 **Usage:**
 ```bash
-poetry run python sweep.py evolution_simulator/config/simulation.toml --seeds 1 2 3 4 --weeks 5000
-poetry run python sweep.py evolution_simulator/config/simulation.toml --n 8 --workers 4
+poetry run python sweep.py simulation_configs/simulation.toml --seeds 1 2 3 4 --weeks 5000
+poetry run python sweep.py simulation_configs/simulation.toml --n 8 --workers 4
 ```
