@@ -3,8 +3,8 @@
 check_run_progress_from_logs.py  —  print a quick status snapshot for a running (or finished) sim.
 
 Usage:
-    python3 check_run_progress_from_logs.py                               # auto-picks the most recent log dir
-    python3 check_run_progress_from_logs.py simulation_logs/2026-05-26_18-20-25
+    python3 scripts/check_run_progress_from_logs.py                               # auto-picks the most recent log dir
+    python3 scripts/check_run_progress_from_logs.py simulation_logs/2026-05-26_18-20-25
 """
 
 import datetime
@@ -12,13 +12,15 @@ import json
 import sys
 from pathlib import Path
 
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+
 
 def find_log_dir() -> Path:
-    candidates = sorted(Path("simulation_logs").iterdir(), reverse=True)
+    candidates = sorted((_REPO_ROOT / "simulation_logs").iterdir(), reverse=True)
     for d in candidates:
         if d.is_dir() and any(d.glob("week_*.json")):
             return d
-    sys.exit("No simulation log directories found under simulation_logs/")
+    sys.exit(f"No simulation log directories found under {_REPO_ROOT / 'simulation_logs'}")
 
 
 def latest_week_file(log_dir: Path) -> Path:

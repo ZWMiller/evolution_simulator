@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Active Work
 
-`TODO.md` in the repo root tracks open tasks across machines. Check it at the start of a session to see what's in progress or queued up, and update it when tasks are completed or new ones are identified.
+`docs/TODO.md` tracks open tasks across machines. Check it at the start of a session to see what's in progress or queued up, and update it when tasks are completed or new ones are identified.
 
 ## Commands
 
@@ -49,6 +49,8 @@ Sex is gene-determined: `sigmoid(sex_determination_genes) >= 0.5` → female.
 ### Resource Geometry (`habitat.py`, `habitats/types.py`)
 
 Each `Habitat` has its own 500-dim environment vector. Food/water discovery uses **dot-product geometry**: `P(resource) = (cos θ + 1) / 2` where θ is the angle between a creature's genes and the habitat vector. A creature aligned with the habitat finds resources with P=1 (perfectly adapted); orthogonal gives P=0.5 (unadapted baseline); anti-aligned gives P=0 (maladapted). This drives local adaptation pressure without any explicit fitness function.
+
+The cosine is computed over **resource-specific gene subspaces**, not the full 500-dim genome: food-finding slices `FOOD_GENE_INDICES` (158 loci) from both the creature genes and the habitat vector; water-finding slices the separate `WATER_GENE_INDICES` (175 loci). The two subsets overlap only partly, so food and water adaptation are partly independent axes (`Habitat.food_likelihoods` / `water_likelihoods`).
 
 Each habitat type (`habitats/types.py`) has a fixed characteristic center vector seeded from a `TYPE_SEED` constant via `__init_subclass__`, with Gaussian per-instance noise layered on top.
 

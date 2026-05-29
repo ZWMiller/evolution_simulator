@@ -49,7 +49,7 @@ Examples:
             print(f"[error] Config file not found: {config_path}", file=sys.stderr)
             sys.exit(1)
     else:
-        config_path = Path(__file__).parent / "evolution_simulator" / "config" / "simulation.toml"
+        config_path = Path(__file__).parent / "simulation_configs" / "simulation.toml"
 
     # Import here so startup errors surface cleanly
     from evolution_simulator.simulation import SimulationRunner

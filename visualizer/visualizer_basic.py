@@ -3,9 +3,9 @@ Evolution Simulator — basic interactive log visualiser.
 
 Usage
 -----
-    poetry run python visualizer_basic.py
-    poetry run python visualizer_basic.py simulation_logs/2026-05-14_21-51-40
-    poetry run python visualizer_basic.py --port 8051
+    poetry run python visualizer/visualizer_basic.py
+    poetry run python visualizer/visualizer_basic.py simulation_logs/2026-05-14_21-51-40
+    poetry run python visualizer/visualizer_basic.py --port 8051
 
 Opens a Dash web app at http://127.0.0.1:8050
 """

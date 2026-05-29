@@ -3,15 +3,20 @@ Evolution Simulator — advanced interactive log visualiser.
 
 Usage
 -----
-    poetry run python visualizer_advanced.py
-    poetry run python visualizer_advanced.py simulation_logs/2026-05-14_21-51-40
-    poetry run python visualizer_advanced.py --port 8052
+    poetry run python visualizer/visualizer_advanced.py
+    poetry run python visualizer/visualizer_advanced.py simulation_logs/2026-05-14_21-51-40
+    poetry run python visualizer/visualizer_advanced.py --port 8052
 
 Opens a Dash app at http://127.0.0.1:8052
 """
 
 import argparse
+import sys
 from pathlib import Path
+
+# Allow `from visualizer import ...` when this script is run directly from
+# inside the visualizer/ package directory.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from visualizer import latest_run, load_run, make_app
 

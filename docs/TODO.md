@@ -126,16 +126,47 @@ living members AND has existed for `min_species_weeks` (default 5) weeks.
 Candidates whose members all die before meeting criteria are silently evaporated.
 Config knobs in `[species]` section of `simulation.toml`.
 
-Next up:
-- Phase 10: multi-run sweep script (`sweep.py`) + global RNG seeding
+Next up: **sweep.py — multi-run multiprocessing**
+
+Goal: run N independent full simulations in parallel (parameter sweeps /
+replicates) using all CPU cores. Each run is a separate `SimulationRunner` in a
+separate OS process with zero shared state. Near-linear speedup up to core count.
+
+**Prerequisite — seed the global RNGs** (`simulation.py`):
+
+After `rng = np.random.default_rng(seed)` in `SimulationRunner.setup()`, add:
+
+```python
+if seed is not None:
+    np.random.seed(seed)    # seeds global MT19937 used in habitat.py / creature.py
+    random.seed(seed)       # seeds stdlib random used for species names
+```
+
+Makes a full run reproducible from `seed` (currently only founding genomes are
+seeded; week dynamics are not).
+
+**Script:** create `scripts/sweep.py`. Key design points:
+- `concurrent.futures.ProcessPoolExecutor` with `spawn` context
+- Each worker overrides `seed` and `output_dir` in-memory (doesn't edit the
+  base config file)
+- Output lands in `sweep_logs/seed_<S>/<timestamp>/`
+- `sweep_logs/sweep_summary.json` indexes all runs on completion
+- `if __name__ == "__main__":` guard is mandatory (spawn re-imports the module)
+- Set `OMP/OPENBLAS/MKL_NUM_THREADS=1` in each worker before importing numpy
+
+**Usage:**
+```bash
+poetry run python scripts/sweep.py simulation_configs/simulation.toml --seeds 1 2 3 4 --weeks 5000
+poetry run python scripts/sweep.py simulation_configs/simulation.toml --n 8 --workers 4
+```
 
 ### Multiprocessing / parallelization
 
-NOTE: Per PLANNING_TEMP.md Section 1, within-run parallelism cannot speed up a
-single long run (weeks are sequentially dependent). The relevant multiprocessing
-opportunity is Phase 10: running N independent full simulations in parallel
-(parameter sweeps / replicates). The habitat-level parallelism investigation
-below is lower-priority given that conclusion.
+NOTE: Within-run parallelism cannot speed up a single long run (weeks are
+sequentially dependent). The relevant multiprocessing opportunity is sweep.py:
+running N independent full simulations in parallel (parameter sweeps /
+replicates). The habitat-level parallelism investigation below is lower-priority
+given that conclusion.
 
 1. **Habitat-level parallelization** — each habitat's `simulate_week()` is
    independent until migrations are collected. Run all habitats in parallel via

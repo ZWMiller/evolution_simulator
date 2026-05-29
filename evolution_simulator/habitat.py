@@ -177,7 +177,7 @@ DEFAULT_FOOD_GENE_INDICES: list[int] = (
     list(range(37, 80))  # foraging ability, water efficiency, intelligence loci
     + list(range(110, 170))  # size, strength, speed, physiology loci
     + list(range(230, 285))  # broad genomic coverage
-)  # 168 total indices
+)  # 158 total indices
 
 DEFAULT_WATER_GENE_INDICES: list[int] = (
     list(range(38, 78))  # water efficiency, drought tolerance loci
