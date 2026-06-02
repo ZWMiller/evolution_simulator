@@ -364,4 +364,76 @@ entry points (`visualizer_basic.py`, `visualizer_advanced.py`).
 
 ---
 
+## Derek's Suggestions
+
+Feedback from a PhD geneticist/biologist. Items flagged with "already present" are accounted for in the current implementation.
+
+### Decouple mutation rate from selective pressure
+
+Derek's point: in real biology the per-locus error rate during replication is roughly constant; what natural selection does is speed the *fixation* of beneficial alleles, not alter the mutation rate itself. Currently `mutation_rate` is a heritable, gene-encoded trait (creature.py:904–911) that itself evolves under selection — so populations can drift toward higher or lower mutation rates, which conflates two distinct biological forces. Options:
+- Make `mutation_rate` a fixed config parameter (simplest; removes the confound entirely).
+- Keep it heritable but add a floor/ceiling config so it can't evolve far from a biological baseline.
+- Document it as a deliberate "mutator strain" mechanism (bacteria do evolve elevated mutation rates under sustained stress via the SOS response), and be explicit that the simulation is modelling that, not the typical metazoan case.
+
+### Drift
+
+- **Already present**: genetic drift is not a separate process — it is the statistical consequence of finite population sampling. Every generation, which individuals happen to mate and survive is a random draw from the parent pool, and that sampling variance accumulates as a random walk in gene space. The simulation has all the necessary ingredients (finite populations, probabilistic death, shuffled mating). Anagenesis in long runs is evidence of this: lineages phenotypically transform even without strong directional selection, which is drift acting.
+- What the "neutral phenotypes" suggestion below would add is a way to *observe and measure* drift magnitude directly, by tracking loci where selection pressure is zero — any allele frequency change there is pure drift.
+- Drift strength scales as 1/N_e (effective population size), so small isolated habitats already experience stronger drift than large ones. If you want to make this more tunable, the lever is `POPULATION_SUPPORT` (smaller cap → stronger drift) rather than any new code.
+
+### Neutral phenotypes / neutral loci
+
+Derek suggests adding some gene loci (and corresponding traits) that are not wired into any selection pressure — not food discovery, water discovery, mating compatibility, predation, or reproduction. These "neutral" axes serve as a direct measurement probe: the rate at which neutral allele frequencies change over time is a pure signal of genetic drift strength, unconfounded by selection. This would let you separately quantify how much allele frequency change in the *adaptive* traits is drift vs. selection.
+
+### Migration as evolutionary force
+
+- **Already implemented**: `migration_likelihood` is a heritable gene-encoded trait (creature.py:768–770). Creatures with higher values emigrate more frequently; `weekly_migration_base` in habitat.py scales the actual per-week probability. The tension Derek describes — high migration → gene flow → homogenization → no speciation; low migration → divergence → speciation — is already present in the model architecture.
+- Potential follow-up: add a visualizer panel showing how migration rate correlates with species count and genetic divergence across habitats, to make the gene-flow/isolation tradeoff legible in the output.
+
+### Drifting habitat vector
+
+Currently `self.vector` is fixed at construction (`CENTER + per-instance noise`) and never changes. Allowing the habitat vector to slowly drift over time would simulate environmental change — climate shifts, succession, resource composition changes — and create ongoing directional selection pressure instead of a fixed optimum.
+
+Two drift modes worth distinguishing:
+- **Random walk**: each week (or every N weeks), add a small Gaussian perturbation to `self.vector` in the FOOD/WATER subspace, then renormalize so the magnitude doesn't inflate. This simulates undirected environmental noise — the optimal phenotype wanders unpredictably. Strength knob: `habitat_drift_rate` (std per step in the config). Setting it to zero recovers current behaviour.
+- **Directed drift**: slowly move `self.vector` toward a second target vector at a fixed rate, simulating a long-run environmental trend (e.g. desertification). Config: `drift_target_seed` + `drift_rate_per_week`.
+
+Biologically interesting dynamics to expect:
+- Slow drift → populations track the moving optimum via selection; fast drift → adaptation can't keep up, mean fitness declines (the "Red Queen" regime).
+- If two connected habitats drift in different directions, migration between them becomes increasingly costly over time, which could drive allopatric speciation even without habitat isolation.
+- If a habitat's drift rate is high relative to mutation rate, you'd expect lower mean adaptation scores and higher variance — testable against a static control run.
+
+Implementation: add a `simulate_week()` call to `Habitat` (or a hook in `SimulationRunner.step()`) that mutates `self.vector[FOOD_GENE_INDICES]` and `self.vector[WATER_GENE_INDICES]` by `rng.standard_normal(len(indices)) * drift_rate`, then renormalizes those subspace slices. The rest of `self.vector` (compatibility, other loci) could optionally drift too or stay fixed.
+
+### Rougher optimization surface (multi-peak habitat vectors)
+
+Currently each habitat has a single center vector, creating a smooth single-peaked fitness landscape: one globally optimal phenotype direction, and any deviation from it lowers resource discovery probability. Real environments offer multiple viable strategies — a forest has generalists, canopy specialists, understory specialists, ground foragers — each a local optimum with a fitness valley between them.
+
+**Idea**: replace the single `self.vector` with a bank of K peak vectors (`self.vectors`, shape `(K, 500)`), and change `_batch_resource_prob` to take the **max** cosine across all K peaks:
+
+```
+P_i = max_k( (cos θ_{i,k} + 1) / 2 )
+```
+
+The max formulation means each creature uses whichever strategy it's best aligned to, and is rewarded for that specialization without needing to be optimal across all peaks. Crucially, once a lineage adapts to peak *j*, it is unlikely to be drawn toward peak *k* unless it randomly traverses the fitness valley between them — this is what makes the surface *rugged*: local minima that selection cannot easily escape.
+
+Alternative aggregations to consider:
+- **Softmax-weighted mean**: smooth interpolation between peaks; reduces ruggedness but avoids hard discontinuities.
+- **Harmonic mean**: penalizes specialization, rewards generalism.
+- **Max with a generalism bonus**: `P_i = mean_k + λ·max_k` balances specialist vs. generalist payoffs.
+
+The K peak vectors would be seeded from the config (e.g. `n_peaks = 3`, `peak_seeds = [1001, 1002, 1003]`), independently perturbed with the usual per-instance noise. Setting `n_peaks = 1` recovers the current single-vector behavior.
+
+Biologically this would enable: **sympatric speciation** (two lineages in the same habitat locking onto different peaks), **competitive exclusion** (the first lineage to lock a peak raises the effective fitness valley for any other), and **niche partitioning** as a measurable outcome rather than an assumption.
+
+### Diploid genome
+
+Each creature currently has a single 500-dim gene vector. Diploid would mean two copies per locus (a maternal and paternal haplotype). This opens the door to dominance/recessiveness, heterozygote advantage (overdominance), and more realistic recombination during sexual reproduction. Major architectural change — would require rethinking how OWA aggregation works when you have two alleles per locus, how compatibility genes are expressed, and how the habitat cosine geometry is computed. Worth prototyping in isolation before committing.
+
+### Chromosomes (linkage groups)
+
+Requires diploid first. Genes on the same chromosome are inherited as a block (linkage disequilibrium), which means beneficial alleles near a positively-selected locus hitchhike to fixation — and deleterious alleles near such a locus can accumulate (genetic hitchhiking / selective sweeps). Would let the model produce realistic patterns like selective sweeps, clonal interference, and Muller's ratchet. Implementation would mean assigning loci to named chromosomes and enforcing block inheritance during recombination.
+
+---
+
 ## Done
