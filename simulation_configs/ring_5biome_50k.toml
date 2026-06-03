@@ -1,0 +1,105 @@
+# ring_5biome_50k.toml
+#
+# Five ecologically distinct habitats in a wheel topology, run for 50 000 weeks.
+#
+# Topology — wheel:
+#   Outer ring (clockwise): Savanna → Plains → Forest → Wetlands → Savanna
+#   Central hub:            Tundra connected to all four outer habitats
+#
+# The Tundra acts as a central "mountain range" separating the warmer biomes.
+# Its 4 spokes give it continuous migration in-flow which helps sustain its
+# small population (support = 150) despite the brutal initial overcrowding.
+#
+# Population support capacities:
+#   Savanna  350  |  Plains  500  |  Forest  400
+#   Wetlands 500  |  Tundra  150
+#
+# Starting population: 3 species × 200 creatures (100F + 100M) per habitat.
+# Tundra starts 4× over its carry capacity; expect a sharp early bottleneck
+# while the outer four habitats settle more gently.  founding_habitat_bias=0.55
+# gives ~65% initial food/water discovery probability to prevent early wipeout.
+#
+# Mating strategy: stable_matching (Gale-Shapley deferred acceptance).
+# Eliminates the minority-species Allee effect so small species aren't
+# starved of mates by cross-species collisions.
+#
+# Isolation probability: 1e-5 per link per week.
+#   E[closures] = 1e-5 × 8 links × 50 000 wk ≈ 4  (vs 1.5 in ring_stable_30k)
+#   P(≥1 closure) ≈ 98%.  Tundra has 4 spokes so it takes 4 consecutive
+#   closures to fully isolate it.
+#
+# Logging: stats every 100 weeks (500 snapshots total), events disabled.
+# 50 000 weeks ≈ 1 250–2 000 generations (generation length ~25–40 weeks).
+
+[simulation]
+weeks                       = 50000
+seed                        = 42
+output_dir                  = "simulation_logs"
+
+mating_strategy             = "stable_matching"
+
+initial_species_per_habitat = 3
+creatures_per_species       = 200    # 100F + 100M per species → 600/habitat, 3 000 total
+initial_genome_noise        = 0.05
+founding_habitat_bias       = 0.55
+
+isolation_probability       = 0.00001   # E[breaks] ≈ 4 over full run
+
+stats_every                 = 100    # 500 snapshots total
+events_every                = 0      # disable per-event logs for speed
+respeciate_every            = 10
+
+[species]
+compatibility_threshold     = 0.65
+min_species_population      = 10
+min_species_weeks           = 60     # ~2 generations before a candidate is confirmed
+split_max_k                 = 5
+split_isolation_threshold   = 0.75
+anagenesis_threshold        = 0.93
+anagenesis_weeks            = 60
+
+[habitats]
+
+# Wheel connections:
+#   outer ring  —  4 edges forming Savanna-Plains-Forest-Wetlands cycle
+#   hub spokes  —  4 edges from Tundra to each outer habitat
+connections = [
+    ["savanna_1",  "plains_1"],     # outer ring
+    ["plains_1",   "forest_1"],     # outer ring
+    ["forest_1",   "wetlands_1"],   # outer ring
+    ["wetlands_1", "savanna_1"],    # outer ring (closes the cycle)
+    ["tundra_1",   "savanna_1"],    # hub spoke
+    ["tundra_1",   "plains_1"],     # hub spoke
+    ["tundra_1",   "forest_1"],     # hub spoke
+    ["tundra_1",   "wetlands_1"],   # hub spoke
+]
+
+[[habitats.instances]]
+id   = "savanna_1"
+type = "Savanna"
+seed = 1
+name = "Northern Savanna"
+
+[[habitats.instances]]
+id   = "plains_1"
+type = "Plains"
+seed = 2
+name = "Eastern Plains"
+
+[[habitats.instances]]
+id   = "forest_1"
+type = "Forest"
+seed = 3
+name = "Southern Forest"
+
+[[habitats.instances]]
+id   = "wetlands_1"
+type = "Wetlands"
+seed = 4
+name = "Western Wetlands"
+
+[[habitats.instances]]
+id   = "tundra_1"
+type = "Tundra"
+seed = 5
+name = "Central Tundra"

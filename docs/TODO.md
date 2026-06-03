@@ -6,6 +6,88 @@ Cross-machine task tracking for active development items.
 
 ## Immediate / Next Session
 
+### Modular refactor — break up the four monolith files
+
+The four core files have grown to 740–1244 lines each and are hard to navigate.
+The refactor goal is to make each file do one clear thing; the extracted modules
+below are already well-isolated by dependency and have no circular risks.
+
+Proposed new modules (all under `evolution_simulator/`):
+
+**`genetics.py`** (~200 lines extracted from `creature.py` + `habitat.py`)**
+Consolidates all gene-layout constants into one place: `GENE_DIMS`,
+`DEFAULT_TRAIT_GENE_INDICES`, `FOOD_GENE_INDICES`, `WATER_GENE_INDICES`,
+`COMPATIBILITY_GENE_INDICES`. Eliminates `HABITAT_VECTOR_DIMS = 500` in
+`habitat.py` which is just a manual duplicate of `GENE_DIMS`. Single source
+of truth for the genome layout — anything that needs a gene index set imports
+from here.
+
+**`traits.py`** (~200 lines extracted from `habitat.py` + `creature.py`)**
+Everything about how traits are defined and measured: `LOGGED_TRAITS`,
+`_TRAIT_SCALING`, `_TRAIT_INTERNAL_KEY`, `_batch_compute_traits()` (currently
+module-level in `habitat.py`), and `PHENOTYPE_TRAITS` + `compute_phenotype_matrix`
+/ `compute_phenotype` (currently at the bottom of `creature.py`). Separates
+"what traits exist and how to measure them in bulk" from the `Creature` class
+itself; OWA `_compute_trait` stays on `Creature` since it reads instance genes.
+
+**`mating.py`** (~500 lines extracted from `habitat.py`)**
+All four mating strategies as standalone functions plus their helpers: `_gale_shapley`
+(166 lines on its own), `_build_compatibility_matrix`, `_mate_zip`,
+`_mate_species_priority`, `_mate_weighted_matrix`, `_mate_stable_matching`,
+`_attempt_mating`. `Habitat.simulate_week` dispatches by name. The mating
+algorithms have no state dependency on `Habitat` beyond the male/female lists
+and a few constants, so extraction is clean. This alone cuts `habitat.py` by
+almost half.
+
+**`speciation_math.py`** (~300 lines extracted from `species.py`)**
+The pure-math helpers that live as static methods on `SpeciesRegistry` for no
+good reason: `_cos`, `_unit_rows`, `_kmeanspp_init`, `_spherical_kmeans`,
+`_select_clusters`, `_rebuild_centroid_matrix`, `_closest_centroid`,
+`_closest_candidate`. `SpeciesRegistry` becomes a pure orchestrator of
+species-level events; the math is importable and testable on its own.
+
+**`log_builder.py`** (~350 lines extracted from `simulation.py`)**
+All log construction and file I/O from `SimulationRunner`: `_build_week_log`,
+`_write_week_log`, `_write_metadata`, `_write_summary`. Also: promote the
+`_bin_*` accumulator fields into a `StatsAccumulator` class with `feed()`,
+`flush()`, and `reset()` methods — currently a dozen raw Counter/int attributes
+sitting on `SimulationRunner`. After extraction, `SimulationRunner` is pure
+orchestration (~350 lines) and the log machinery is testable in isolation.
+
+**Expected outcome after refactor:**
+- `creature.py`: ~650 lines (trait properties + `simulate_week` + reproduction)
+- `habitat.py`: ~450 lines (resource geometry, isolation, `simulate_week` loop)
+- `species.py`: ~600 lines (`SpeciesRegistry` orchestration, no math helpers)
+- `simulation.py`: ~350 lines (world setup + week loop + extinction check)
+
+No behaviour changes — this is a pure structural move. All tests should pass
+unchanged after import paths are updated.
+
+---
+
+### Diagnose high speciation rate
+
+The 5-biome 50k wheel run (2026-06-02_19-15-21) shows 575 total species by week
+19,200 — roughly 1 speciation event every 33 weeks across 3,000 creatures. That
+still feels too high despite the k-means-only cladogenesis changes on this branch.
+
+**Approach:** run a short diagnostic sim (2,000–5,000 weeks) with
+`events_every = 1` (per-week event logging) and inspect the speciation events in
+detail:
+- What `event_type` is driving the volume — anagenesis, cladogenesis_kmeans_subcluster,
+  or cladogenesis_bootstrap (founding)?
+- Are most events candidates that get promoted, or are they born-and-die quickly
+  without ever reaching `min_species_weeks`?
+- What is the mean species lifetime? If it's short, high churn (rapid
+  birth+extinction) is the issue, not a high instantaneous count.
+- Are the high-population habitats (Wetlands, Plains) responsible for most events,
+  or is it spread evenly?
+
+Check summary.json `speciation_events` list for `event_type` breakdown before
+building the full diagnostic to confirm which path is noisy.
+
+---
+
 ### Validation runs for food/water retune + cladogenesis changes (branch: feature/food-water-retune-cladogenesis)
 
 The branch raises food/water selection pressure and removes newborn cladogenesis

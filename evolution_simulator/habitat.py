@@ -991,6 +991,7 @@ class Habitat:
             if not creature.is_alive:
                 deaths.append(creature.creature_id)
 
+            log["species"] = creature.species
             week_results[creature.creature_id] = log
 
         # ------------------------------------------------------------------
@@ -1009,6 +1010,7 @@ class Habitat:
                 creature.cause_of_death = "predation"
                 predation_deaths.append(creature.creature_id)
                 week_results[creature.creature_id]["cause_of_death"] = "predation"
+                week_results[creature.creature_id]["species"] = creature.species
 
         # ------------------------------------------------------------------
         # 7. Remove the dead
