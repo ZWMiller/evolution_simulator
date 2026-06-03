@@ -162,6 +162,12 @@ def load_run(log_dir: Path) -> dict:
         else:
             trait_global_ranges[t] = (0.0, 1.0)
 
+    # Interval / bin stats: keyed by the logged week the snapshot covers up to.
+    interval_stats_by_week: dict[int, dict] = {}
+    for d in days:
+        if "interval_stats" in d:
+            interval_stats_by_week[d["week"]] = d["interval_stats"]
+
     return {
         "metadata": metadata,
         "summary": summary,
@@ -178,6 +184,8 @@ def load_run(log_dir: Path) -> dict:
         "last_data_week": last_data_week,
         "trait_global_ranges": trait_global_ranges,
         "extinct": summary["extinct"],
+        "interval_stats_by_week": interval_stats_by_week,
+        "weeks_with_interval_stats": sorted(interval_stats_by_week.keys()),
     }
 
 
@@ -527,6 +535,208 @@ def fig_trait_heatmap(run: dict, week: int, hab_id: str | None = None) -> go.Fig
 
 
 # ---------------------------------------------------------------------------
+# Interval / bin stats figures and display builder
+# ---------------------------------------------------------------------------
+
+
+def fig_bin_deaths_by_cause(ist: dict) -> go.Figure:
+    by_cause = ist["deaths"].get("by_cause", {})
+    causes = list(by_cause.keys())
+    counts = [by_cause[c] for c in causes]
+    fig = go.Figure(go.Bar(x=counts, y=causes, orientation="h", marker_color="#ef5350"))
+    fig.update_layout(
+        title=f"Deaths by Cause  (total: {ist['deaths'].get('total', 0)})",
+        height=max(200, 36 * len(causes) + 70),
+        margin=dict(t=36, b=20, l=110, r=20),
+    )
+    return fig
+
+
+def fig_bin_deaths_by_species(ist: dict) -> go.Figure:
+    by_sp = ist["deaths"].get("by_species", {})
+    top = sorted(by_sp.items(), key=lambda x: -x[1])[:12]
+    species = [s for s, _ in top]
+    counts = [c for _, c in top]
+    fig = go.Figure(go.Bar(x=counts, y=species, orientation="h", marker_color="#ab47bc"))
+    fig.update_layout(
+        title="Deaths by Species",
+        height=max(220, 24 * len(species) + 70),
+        margin=dict(t=36, b=20, l=160, r=20),
+    )
+    return fig
+
+
+def fig_bin_births_by_habitat(ist: dict, run: dict) -> go.Figure:
+    by_hab = ist["births"].get("by_habitat", {})
+    habs = sorted(by_hab.keys(), key=lambda h: -by_hab[h])
+    names = [run["habitat_names"].get(h, h) for h in habs]
+    counts = [by_hab[h] for h in habs]
+    fig = go.Figure(go.Bar(x=counts, y=names, orientation="h", marker_color="#42a5f5"))
+    fig.update_layout(
+        title=f"Births by Habitat  (total: {ist['births'].get('total', 0)})",
+        height=max(200, 32 * len(habs) + 70),
+        margin=dict(t=36, b=20, l=160, r=20),
+    )
+    return fig
+
+
+def fig_bin_births_by_species(ist: dict) -> go.Figure:
+    by_sp = ist["births"].get("by_species", {})
+    top = sorted(by_sp.items(), key=lambda x: -x[1])[:12]
+    species = [s for s, _ in top]
+    counts = [c for _, c in top]
+    fig = go.Figure(go.Bar(x=counts, y=species, orientation="h", marker_color="#26a69a"))
+    fig.update_layout(
+        title="Births by Species",
+        height=max(220, 24 * len(species) + 70),
+        margin=dict(t=36, b=20, l=160, r=20),
+    )
+    return fig
+
+
+def fig_bin_migrations(ist: dict, run: dict) -> go.Figure:
+    by_route = ist["migrations"].get("by_route", {})
+    if not by_route:
+        fig = go.Figure()
+        fig.update_layout(title="No migrations this bin", height=120, margin=dict(t=36, b=20))
+        return fig
+    sorted_routes = sorted(by_route.items(), key=lambda x: -x[1])
+    labels = []
+    for route_key, _ in sorted_routes:
+        if "→" in route_key:
+            f, t = route_key.split("→", 1)
+            f_name = run["habitat_names"].get(f.strip(), f.strip())
+            t_name = run["habitat_names"].get(t.strip(), t.strip())
+            labels.append(f"{f_name} → {t_name}")
+        else:
+            labels.append(route_key)
+    counts = [c for _, c in sorted_routes]
+    fig = go.Figure(go.Bar(x=counts, y=labels, orientation="h", marker_color="#ffa726"))
+    fig.update_layout(
+        title=f"Migrations by Route  (total: {ist['migrations'].get('total', 0)})",
+        height=max(200, 28 * len(sorted_routes) + 70),
+        margin=dict(t=36, b=20, l=220, r=20),
+    )
+    return fig
+
+
+def fig_bin_habitat_births(ist: dict, hab_id: str, hab_name: str) -> go.Figure:
+    sp_counts = ist["births"].get("by_habitat_and_species", {}).get(hab_id, {})
+    if not sp_counts:
+        fig = go.Figure()
+        fig.update_layout(title=f"{hab_name}: no births", height=100, margin=dict(t=36, b=10))
+        return fig
+    top = sorted(sp_counts.items(), key=lambda x: -x[1])[:10]
+    species = [s for s, _ in top]
+    counts = [c for _, c in top]
+    fig = go.Figure(go.Bar(x=counts, y=species, orientation="h", marker_color="#66bb6a"))
+    fig.update_layout(
+        title=hab_name,
+        height=max(160, 24 * len(species) + 60),
+        margin=dict(t=36, b=20, l=150, r=20),
+    )
+    return fig
+
+
+def build_bin_stats_display(ist: dict, run: dict, week: int) -> html.Div:
+    """Render the full interval-stats panel for one logged week."""
+    weeks_covered = ist.get("weeks_covered", [week, week])
+    deaths = ist.get("deaths", {})
+    births = ist.get("births", {})
+    mating = ist.get("mating", {})
+    migrations = ist.get("migrations", {})
+    isolation_events = ist.get("isolation_events", [])
+
+    total_pairings = mating.get("total_pairings", 0)
+    fertilizations = mating.get("fertilizations", 0)
+    hybrid = mating.get("hybrid_conceptions", 0)
+    fert_pct = f"{100 * fertilizations / total_pairings:.0f}%" if total_pairings else "—"
+
+    summary_line = (
+        f"Weeks {weeks_covered[0]}–{weeks_covered[1]}  |  "
+        f"Deaths: {deaths.get('total', 0)}  |  "
+        f"Births: {births.get('total', 0)}  |  "
+        f"Migrations: {migrations.get('total', 0)}  |  "
+        f"Matings: {total_pairings}  ({fertilizations} fertilized = {fert_pct},  {hybrid} hybrid conceptions)"
+    )
+
+    # Isolation alert block — shows exact week each route closed.
+    iso_block = []
+    if isolation_events:
+        items = []
+        for ev in isolation_events:
+            from_name = run["habitat_names"].get(ev["from_habitat"], ev["from_habitat"])
+            to_name = run["habitat_names"].get(ev["blocked_neighbor"], ev["blocked_neighbor"])
+            items.append(html.Li(f"Week {ev['week']}: {from_name} → {to_name} route closed"))
+        iso_block = [
+            html.Div(
+                [
+                    html.Strong("⚠ Route Isolations this bin:"),
+                    html.Ul(items, style={"margin": "4px 0 0 16px", "padding": 0}),
+                ],
+                style={
+                    "backgroundColor": "#fff3e0",
+                    "border": "1px solid #ffb300",
+                    "borderRadius": 4,
+                    "padding": "8px 16px",
+                    "marginBottom": 12,
+                    "fontSize": "13px",
+                    "color": "#e65100",
+                },
+            )
+        ]
+
+    hab_birth_charts = [
+        html.Div(
+            dcc.Graph(figure=fig_bin_habitat_births(ist, hid, run["habitat_names"].get(hid, hid))),
+            style={"flex": "1", "minWidth": 240},
+        )
+        for hid in run["habitat_ids"]
+    ]
+
+    return html.Div(
+        [
+            html.Div(
+                summary_line,
+                style={
+                    "padding": "10px 14px",
+                    "backgroundColor": "#e3f2fd",
+                    "fontFamily": "monospace",
+                    "fontSize": "13px",
+                    "borderRadius": 4,
+                    "marginBottom": 12,
+                    "whiteSpace": "pre-wrap",
+                },
+            ),
+            *iso_block,
+            html.H4("Deaths this bin", style={"marginBottom": 4}),
+            html.Div(
+                [
+                    html.Div(dcc.Graph(figure=fig_bin_deaths_by_cause(ist)), style={"flex": "1"}),
+                    html.Div(dcc.Graph(figure=fig_bin_deaths_by_species(ist)), style={"flex": "1"}),
+                ],
+                style={"display": "flex", "gap": 12, "marginBottom": 12},
+            ),
+            html.H4("Births this bin", style={"marginBottom": 4}),
+            html.Div(
+                [
+                    html.Div(dcc.Graph(figure=fig_bin_births_by_habitat(ist, run)), style={"flex": "1"}),
+                    html.Div(dcc.Graph(figure=fig_bin_births_by_species(ist)), style={"flex": "1"}),
+                ],
+                style={"display": "flex", "gap": 12, "marginBottom": 12},
+            ),
+            html.H4("Births by Species per Habitat", style={"marginBottom": 4}),
+            html.Div(
+                hab_birth_charts, style={"display": "flex", "flexWrap": "wrap", "gap": 12, "marginBottom": 12}
+            ),
+            html.H4("Migrations this bin", style={"marginBottom": 4}),
+            dcc.Graph(figure=fig_bin_migrations(ist, run)),
+        ],
+        style={"padding": "0 0 24px"},
+    )
+
+
+# ---------------------------------------------------------------------------
 # Layout
 # ---------------------------------------------------------------------------
 
@@ -557,6 +767,7 @@ def build_layout(run: dict) -> html.Div:
                             html.Span(f"Weeks: {run['weeks_simulated']}  ·  "),
                             html.Span(f"Species ever: {summary['total_species_ever']}  ·  "),
                             html.Span(f"Speciations: {summary['total_speciation_events']}  ·  "),
+                            html.Span(f"Isolations: {len(summary.get('all_isolation_events', []))}  ·  "),
                             html.Span("Status: "),
                             extinct_badge,
                         ],
@@ -736,6 +947,37 @@ def build_layout(run: dict) -> html.Div:
                             dcc.Graph(id="fig-heatmap"),
                         ],
                     ),
+                    # Tab 6: Bin / Interval Stats
+                    dcc.Tab(
+                        label="Bin Stats",
+                        value="binstats",
+                        children=[
+                            html.Div(
+                                [
+                                    html.Label(
+                                        "Logged week:",
+                                        style={"fontWeight": "bold", "marginRight": 8},
+                                    ),
+                                    dcc.Dropdown(
+                                        id="bin-week-select",
+                                        options=[
+                                            {"label": f"Week {w}", "value": w}
+                                            for w in run["weeks_with_interval_stats"]
+                                        ],
+                                        value=(
+                                            run["weeks_with_interval_stats"][-1]
+                                            if run["weeks_with_interval_stats"]
+                                            else None
+                                        ),
+                                        clearable=False,
+                                        style={"width": 200},
+                                    ),
+                                ],
+                                style={"padding": "12px 24px 8px", "display": "flex", "alignItems": "center"},
+                            ),
+                            html.Div(id="bin-stats-content", style={"padding": "4px 24px"}),
+                        ],
+                    ),
                 ],
             ),
         ]
@@ -783,6 +1025,24 @@ def make_app(run: dict) -> dash.Dash:
     def update_heatmap(scope, week):
         hab_id = None if scope == "__global__" else scope
         return fig_trait_heatmap(run, week, hab_id)
+
+    @app.callback(
+        Output("bin-stats-content", "children"),
+        Input("bin-week-select", "value"),
+    )
+    def update_bin_stats(week):
+        if not run["weeks_with_interval_stats"]:
+            return html.P(
+                "No interval stats found in this run. "
+                "This run predates the interval_stats feature, or stats_every=0.",
+                style={"color": "#888", "padding": "16px 0"},
+            )
+        if week is None:
+            return html.P("Select a logged week above.", style={"color": "#888"})
+        ist = run["interval_stats_by_week"].get(week)
+        if ist is None:
+            return html.P(f"No interval stats for week {week}.", style={"color": "#888"})
+        return build_bin_stats_display(ist, run, week)
 
     return app
 
