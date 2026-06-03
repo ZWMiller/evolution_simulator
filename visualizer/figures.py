@@ -75,6 +75,59 @@ def _empty_fig(message: str = "no data", height: int = 200) -> go.Figure:
     return fig
 
 
+# ── Bin / interval stats figures ─────────────────────────────────────────────
+
+
+def bin_deaths_by_cause(ist: dict) -> go.Figure:
+    """Compact horizontal bar: deaths by cause for one stats bin."""
+    by_cause = ist.get("deaths", {}).get("by_cause", {})
+    if not by_cause:
+        return _empty_fig("no death data", height=120)
+    cause_order = ["starvation", "dehydration", "old_age", "predation"]
+    causes = [c for c in cause_order if c in by_cause] + [c for c in by_cause if c not in cause_order]
+    counts = [by_cause[c] for c in causes]
+    fig = go.Figure(
+        go.Bar(
+            x=counts,
+            y=[c.replace("_", " ") for c in causes],
+            orientation="h",
+            marker_color=["#ef5350", "#ef8a50", "#ab47bc", "#ff7043"],
+        )
+    )
+    fig.update_layout(
+        **_base_layout(
+            title=dict(text="deaths by cause", font=dict(size=10, color=DIMTEXT), x=0),
+            height=max(120, 28 * len(causes) + 50),
+            margin=dict(t=28, b=10, l=80, r=12),
+            xaxis=dict(color=DIMTEXT, gridcolor=BORDER, zeroline=False, title_text=""),
+            yaxis=dict(color=DIMTEXT, gridcolor=BORDER, zeroline=False),
+        )
+    )
+    return fig
+
+
+def bin_habitat_births(ist: dict, hab_id: str, hab_name: str, run: dict) -> go.Figure:
+    """Compact horizontal bar: births by species in one habitat for one stats bin."""
+    sp_counts = ist.get("births", {}).get("by_habitat_and_species", {}).get(hab_id, {})
+    if not sp_counts:
+        return _empty_fig(f"no births in {hab_name}", height=100)
+    top = sorted(sp_counts.items(), key=lambda x: -x[1])[:10]
+    species = [s for s, _ in top]
+    counts = [c for _, c in top]
+    border = _hab_border(run, hab_id)
+    fig = go.Figure(go.Bar(x=counts, y=species, orientation="h", marker_color=border))
+    fig.update_layout(
+        **_base_layout(
+            title=dict(text=f"births · {hab_name}", font=dict(size=10, color=DIMTEXT), x=0),
+            height=max(120, 24 * len(species) + 50),
+            margin=dict(t=28, b=10, l=140, r=12),
+            xaxis=dict(color=DIMTEXT, gridcolor=BORDER, zeroline=False, title_text=""),
+            yaxis=dict(color=DIMTEXT, gridcolor=BORDER, zeroline=False),
+        )
+    )
+    return fig
+
+
 # ── Panel chart figures ───────────────────────────────────────────────────────
 
 

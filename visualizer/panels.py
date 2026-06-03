@@ -235,6 +235,49 @@ def _global(state: dict, run: dict, day: int) -> list:
         for sp, cnt in active:
             items.append(_species_button(f"{sp}  ({cnt})", {"type": "species_global", "species": sp}))
 
+    # Bin / interval stats for this logged week
+    ist = run["interval_stats_by_week"].get(day)
+    if ist:
+        wc = ist.get("weeks_covered", [day, day])
+        deaths = ist.get("deaths", {})
+        births = ist.get("births", {})
+        mating = ist.get("mating", {})
+        migrations = ist.get("migrations", {})
+        iso_events = ist.get("isolation_events", [])
+        total_p = mating.get("total_pairings", 0)
+        fert = mating.get("fertilizations", 0)
+        fert_pct = f"{100 * fert // total_p}%" if total_p else "—"
+
+        bin_items = [
+            _kv("weeks covered", f"{wc[0]}–{wc[1]}"),
+            _kv("deaths", deaths.get("total", 0)),
+            _kv("births", births.get("total", 0)),
+            _kv("migrations", migrations.get("total", 0)),
+            _kv("matings", f"{total_p}  ({fert} fertilized = {fert_pct})"),
+            _kv("hybrid conceptions", mating.get("hybrid_conceptions", 0)),
+        ]
+
+        # Deaths by cause as key-value pairs
+        for cause, n in sorted(deaths.get("by_cause", {}).items(), key=lambda x: -x[1]):
+            bin_items.append(_kv(f"  {cause.replace('_', ' ')}", n))
+
+        items.append(_section("BIN STATS", bin_items))
+        items.append(_graph(figs.bin_deaths_by_cause(ist)))
+
+        # Isolation events with exact week
+        if iso_events:
+            iso_items = []
+            for ev in iso_events:
+                from_name = run["hab_names"].get(ev["from_habitat"], ev["from_habitat"])
+                to_name = run["hab_names"].get(ev["blocked_neighbor"], ev["blocked_neighbor"])
+                iso_items.append(
+                    html.Div(
+                        f"week {ev['week']}: {from_name} → {to_name}",
+                        style=_s(color="#ffb300", fontSize="12px", marginBottom="3px", fontFamily=FONT),
+                    )
+                )
+            items.append(_section("⚠ ROUTE ISOLATIONS THIS BIN", iso_items))
+
     # Recent speciations
     recent = spec_so_far[-10:]
     if recent:
@@ -309,6 +352,37 @@ def _habitat(state: dict, run: dict, day: int) -> list:
             ],
         ),
     ]
+
+    # Bin / interval stats for this habitat
+    ist = run["interval_stats_by_week"].get(day)
+    if ist:
+        wc = ist.get("weeks_covered", [day, day])
+        hab_births_total = ist.get("births", {}).get("by_habitat", {}).get(hab_id, 0)
+
+        bin_items = [
+            _kv("weeks covered", f"{wc[0]}–{wc[1]}"),
+            _kv("births this bin", hab_births_total),
+        ]
+
+        # Isolation events involving this habitat (as source or blocked target)
+        iso_here = [
+            ev
+            for ev in ist.get("isolation_events", [])
+            if ev["from_habitat"] == hab_id or ev["blocked_neighbor"] == hab_id
+        ]
+        if iso_here:
+            for ev in iso_here:
+                from_name = run["hab_names"].get(ev["from_habitat"], ev["from_habitat"])
+                to_name = run["hab_names"].get(ev["blocked_neighbor"], ev["blocked_neighbor"])
+                bin_items.append(
+                    html.Div(
+                        f"⚠ week {ev['week']}: {from_name} → {to_name} closed",
+                        style=_s(color="#ffb300", fontSize="12px", marginBottom="3px", fontFamily=FONT),
+                    )
+                )
+
+        items.append(_section("BIN STATS", bin_items))
+        items.append(_graph(figs.bin_habitat_births(ist, hab_id, hab_name, run)))
 
     active = sorted(sp_dist.items(), key=lambda x: -x[1]) if sp_dist else []
     if active:

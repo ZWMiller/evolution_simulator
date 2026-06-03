@@ -189,6 +189,11 @@ def load_run(log_dir: Path) -> dict:
 
     node_positions = _spring_layout(hab_ids, connections)
 
+    interval_stats_by_week: dict[int, dict] = {}
+    for week_n, d in weeks_data.items():
+        if "interval_stats" in d:
+            interval_stats_by_week[week_n] = d["interval_stats"]
+
     return {
         "run_id": log_dir.name,
         "metadata": metadata,
@@ -219,6 +224,7 @@ def load_run(log_dir: Path) -> dict:
         "node_positions": node_positions,
         "weeks_simulated": summary["weeks_simulated"],
         "extinct": summary["extinct"],
+        "interval_stats_by_week": interval_stats_by_week,
     }
 
 
