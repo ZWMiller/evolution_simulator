@@ -65,49 +65,6 @@ re-run the cross-process `PYTHONHASHSEED` check. Add an assertion that no
 `np.random.<global>` call remains in the simulation hot path (grep guard or a
 small test).
 
-### Modular refactor — break up the four monolith files — DONE
-
-Split the four core monoliths into single-responsibility modules. All 270 tests
-pass; the moved gene constants were verified byte-identical to HEAD, and the OWA
-kernel (previously triplicated) collapsed to one `genetics.owa_aggregate` with a
-bit-exact equivalence check.
-
-Five new modules under `evolution_simulator/`:
-
-- **`genetics.py`** — single source of truth for genome layout: `GENE_DIMS`,
-  `DEFAULT_TRAIT_GENE_INDICES`, `DEFAULT_FOOD_GENE_INDICES`,
-  `DEFAULT_WATER_GENE_INDICES`, plus the OWA genotype→phenotype kernel
-  (`DEFAULT_OWA_ALPHA`, `owa_aggregate`, `owa_value`) and the resource-geometry
-  design note. (Note: there is no standalone `COMPATIBILITY_GENE_INDICES`
-  constant — `compatibility_genes`/`sex_determination` are keys inside
-  `DEFAULT_TRAIT_GENE_INDICES`.) `HABITAT_VECTOR_DIMS` is kept as a derived
-  domain constant in `habitat.py` (`= GENE_DIMS`), not a duplicate literal.
-- **`traits.py`** — trait catalogs + bulk measurement: `LOGGED_TRAITS`,
-  `_TRAIT_SCALING`, `_TRAIT_INTERNAL_KEY`, `_batch_compute_traits`,
-  `PHENOTYPE_TRAITS`, `compute_phenotype_matrix`, `compute_phenotype`. Imports
-  genetics only — no `Creature` import (clean DAG: genetics ← creature, genetics
-  ← traits, no creature↔traits edge). `Creature._compute_trait` now calls the
-  shared `owa_value`.
-- **`mating.py`** — all four strategies + helpers as free functions
-  (`_gale_shapley`, `_build_compatibility_matrix`, `_mate_*`, `_attempt_mating`).
-  `MATING_SHARPNESS_K` is passed explicitly; `Habitat.simulate_week` dispatches.
-- **`speciation_math.py`** — only the genuinely pure helpers (`cos`, `unit_rows`,
-  `kmeanspp_init`, `spherical_kmeans`). `_select_clusters` (reads config) and
-  `_closest_centroid` / `_closest_candidate` / `_rebuild_centroid_matrix` (read
-  instance state) correctly stayed on `SpeciesRegistry`.
-- **`log_builder.py`** — `StatsAccumulator` (the former dozen `_bin_*` fields)
-  with `record_week` / `flush_interval` / `build_interval_stats` / `reset`. The
-  `_build_week_log` / `_write_*` methods stayed on `SimulationRunner`: they read
-  pervasive runner state, so relocating them would couple, not decouple.
-
-Final cleanup removed all back-compat re-export shims; every consumer (package
-internals, tests, `__init__.py`, experiments) now imports each symbol from its
-canonical home. Line counts: creature 1244→564, habitat 1149→571, species
-912→783, simulation 737→667; new modules genetics 679, traits 240, mating 426,
-speciation_math 144, log_builder 116.
-
----
-
 ### Diagnose high speciation rate
 
 The 5-biome 50k wheel run (2026-06-02_19-15-21) shows 575 total species by week
