@@ -123,8 +123,11 @@ def _mate_species_priority(viable_males: list, viable_females: list) -> list[dic
     spillover_males: list = []
     spillover_females: list = []
 
+    # sorted() gives a canonical order independent of set/hash iteration order
+    # (which varies per process); the seeded shuffle then yields a deterministic
+    # permutation, so the pairing is reproducible run-to-run.
     all_species = set(males_by_species) | set(females_by_species)
-    species_order = list(all_species)
+    species_order = sorted(all_species)
     np.random.shuffle(species_order)
 
     for sp in species_order:

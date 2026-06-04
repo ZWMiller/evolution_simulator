@@ -35,7 +35,8 @@ class Habitat:
 
     Core responsibilities
     ---------------------
-    - Track which creatures are present (O(1) add / remove via set).
+    - Track which creatures are present (O(1) add / remove via an insertion-
+      ordered dict keyed by creature_id, for deterministic iteration).
     - Compute batched food and water likelihoods across the whole population
       using vectorised numpy operations.
     - Manage neighbour connections and migration routes, including support for
@@ -138,8 +139,12 @@ class Habitat:
         if population_support is not None:
             self.POPULATION_SUPPORT = population_support
 
-        # Population stored as a set for O(1) membership operations
-        self._creatures: set = set()
+        # Population stored as an insertion-ordered dict keyed by creature_id.
+        # Gives O(1) add / remove / membership AND a deterministic iteration
+        # order (a plain set iterates in object-id-hash order, which varies per
+        # process and silently breaks run-to-run reproducibility — every seeded
+        # per-creature random draw would land on a different creature each run).
+        self._creatures: dict[str, Creature] = {}
 
         # Neighbour registry: neighbour_habitat_id → {"habitat": Habitat, "passable": bool}
         self._neighbors: dict[str, dict] = {}
@@ -151,28 +156,28 @@ class Habitat:
     @property
     def creatures(self) -> list:
         """All creatures currently registered in this habitat."""
-        return list(self._creatures)
+        return list(self._creatures.values())
 
     @property
     def alive_creatures(self) -> list:
         """All living creatures in this habitat."""
-        return [c for c in self._creatures if c.is_alive]
+        return [c for c in self._creatures.values() if c.is_alive]
 
     @property
     def population_size(self) -> int:
         """Number of living creatures."""
-        return sum(1 for c in self._creatures if c.is_alive)
+        return sum(1 for c in self._creatures.values() if c.is_alive)
 
     def add_creature(self, creature: "Creature") -> None:
         """Add a creature to this habitat."""
-        self._creatures.add(creature)
+        self._creatures[creature.creature_id] = creature
 
     def remove_creature(self, creature: "Creature") -> None:
         """Remove a creature from this habitat (no-op if not present)."""
-        self._creatures.discard(creature)
+        self._creatures.pop(creature.creature_id, None)
 
     def has_creature(self, creature: "Creature") -> bool:
-        return creature in self._creatures
+        return creature.creature_id in self._creatures
 
     # ------------------------------------------------------------------
     # Neighbour / migration management
@@ -437,7 +442,7 @@ class Habitat:
         # ------------------------------------------------------------------
         for creature in alive:
             if not creature.is_alive:
-                self._creatures.discard(creature)
+                self._creatures.pop(creature.creature_id, None)
 
         # ------------------------------------------------------------------
         # 8. Migration
@@ -446,22 +451,24 @@ class Habitat:
         passable = self.passable_neighbors()
         if passable:
             weekly_migration_base = self.WEEKLY_MIGRATION_BASE
-            for creature in list(self._creatures):
+            for creature in list(self._creatures.values()):
                 if not creature.is_alive:
                     continue
                 weekly_prob = creature.migration_likelihood * weekly_migration_base
                 if np.random.random() < weekly_prob:
                     destination = passable[np.random.randint(len(passable))]
-                    self._creatures.discard(creature)
+                    self._creatures.pop(creature.creature_id, None)
                     pending_migrations.append((creature, destination))
 
         # ------------------------------------------------------------------
         # 9. Mating
         # ------------------------------------------------------------------
-        viable_males = [c for c in self._creatures if c.is_alive and c.sex == "male" and c.is_sexually_viable]
+        viable_males = [
+            c for c in self._creatures.values() if c.is_alive and c.sex == "male" and c.is_sexually_viable
+        ]
         viable_females = [
             c
-            for c in self._creatures
+            for c in self._creatures.values()
             if c.is_alive and c.sex == "female" and c.is_sexually_viable and not c.is_pregnant
         ]
 
@@ -481,7 +488,7 @@ class Habitat:
         for child in newborns:
             if species_registry is not None:
                 species_registry.assign_species(child)
-            self._creatures.add(child)
+            self._creatures[child.creature_id] = child
 
         # ------------------------------------------------------------------
         # 11. Spontaneous isolation

@@ -365,8 +365,13 @@ class SpeciesRegistry:
                 new_name = self._unique_name()
                 # Living centroid seeded from the promoted members' compat mean;
                 # full-genome type frozen from the candidate's seed genome.
+                # sorted() fixes the summation order of the centroid mean below;
+                # alive_members is a set, and float addition is not associative,
+                # so an unordered sum would differ bit-for-bit between runs.
                 member_compat = [
-                    self._compat(creature_map[mid].genes) for mid in alive_members if mid in creature_map
+                    self._compat(creature_map[mid].genes)
+                    for mid in sorted(alive_members)
+                    if mid in creature_map
                 ]
                 centroid = np.mean(np.stack(member_compat), axis=0) if member_compat else cand["compat"]
                 self._add_to_registry(new_name, cand["genes"], centroid=centroid)

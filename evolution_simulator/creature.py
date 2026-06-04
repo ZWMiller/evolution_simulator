@@ -1,10 +1,26 @@
-import uuid
+import itertools
 
 import numpy as np
 
 # Genome layout + the OWA genotype->phenotype kernel live in genetics.py
 # (single source of truth).
 from .genetics import DEFAULT_OWA_ALPHA, DEFAULT_TRAIT_GENE_INDICES, GENE_DIMS, owa_value
+
+# Deterministic creature-ID source.  A monotonic counter (not uuid4, which draws
+# OS entropy and is therefore non-reproducible) so that two runs with the same
+# config + seed produce byte-identical IDs and hence byte-identical logs.
+# SimulationRunner.setup() calls reset_creature_ids() at the start of each run.
+_id_counter = itertools.count(1)
+
+
+def _next_creature_id() -> str:
+    return f"c{next(_id_counter):010d}"
+
+
+def reset_creature_ids(start: int = 1) -> None:
+    """Reset the monotonic creature-ID counter (called once per run setup)."""
+    global _id_counter
+    _id_counter = itertools.count(start)
 
 
 class Creature:
@@ -80,7 +96,7 @@ class Creature:
         else:
             self.genes = np.random.randn(GENE_DIMS)
 
-        self.creature_id: str = creature_id if creature_id is not None else str(uuid.uuid4())
+        self.creature_id: str = creature_id if creature_id is not None else _next_creature_id()
         self.parents: list[Creature] = parents if parents is not None else []
         self.generation: int = (max(p.generation for p in self.parents) + 1) if self.parents else 0
 

@@ -43,7 +43,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .creature import Creature
+from .creature import Creature, reset_creature_ids
 from .genetics import GENE_DIMS
 from .habitat import Habitat
 from .habitats import HABITAT_TYPE_REGISTRY
@@ -147,13 +147,32 @@ class SimulationRunner:
             anagenesis_weeks=anagenesis_weeks,
         )
 
+        # --- Determinism: seed every RNG stream + the creature-ID counter ---
+        # Read the seed up front so each habitat instance vector can derive a
+        # deterministic seed from it when the config omits a per-instance seed.
+        # habitat.py and creature.py draw from the global np.random.* singleton
+        # and stdlib random; without seeding these they are OS-initialised and
+        # differ between runs even with the same config seed.
+        seed = sim_cfg.get("seed", None)
+        rng = np.random.default_rng(seed)
+        reset_creature_ids()
+        if seed is not None:
+            np.random.seed(seed)
+            random.seed(seed)
+
         # --- Habitats ---
-        for inst in self.config["habitats"]["instances"]:
+        for idx, inst in enumerate(self.config["habitats"]["instances"]):
+            inst_seed = inst.get("seed")
+            if inst_seed is None and seed is not None:
+                # Derive a deterministic per-instance seed from the run seed so a
+                # config that omits per-habitat seeds is still reproducible
+                # (default_rng(None) would otherwise draw OS entropy).
+                inst_seed = seed * 100_003 + idx
             hab_class = HABITAT_TYPE_REGISTRY[inst["type"]]
             hab = hab_class(
                 habitat_id=inst["id"],
                 name=inst.get("name", inst["id"]),
-                instance_seed=inst.get("seed"),
+                instance_seed=inst_seed,
                 population_support=inst.get("population_support"),
             )
             self.habitats[inst["id"]] = hab
@@ -171,15 +190,8 @@ class SimulationRunner:
         # so the founding population survives the first generation with random metabolism.
         # Descendants still need to evolve; the bias only closes the viability gap.
         habitat_bias = sim_cfg.get("founding_habitat_bias", 0.0)
-        seed = sim_cfg.get("seed", None)
-        rng = np.random.default_rng(seed)
-        # Seed the global RNGs so the full run is reproducible from `seed`.
-        # habitat.py and creature.py use the global np.random.* singleton and
-        # stdlib random; without this they are OS-initialised and differ between
-        # runs even with the same config seed.
-        if seed is not None:
-            np.random.seed(seed)
-            random.seed(seed)
+        # `seed` and `rng` were established above (with the global RNGs seeded);
+        # the founding genomes below draw from `rng`.
 
         self._founders_by_hab: dict[str, list[dict]] = {hid: [] for hid in self.habitats}
         mirror = sim_cfg.get("mirror_founding_population", False)
