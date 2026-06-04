@@ -34,8 +34,8 @@ import numpy as np
 # Make the project importable regardless of the invoking working directory.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from evolution_simulator.creature import compute_phenotype_matrix
 from evolution_simulator.simulation import SimulationRunner
+from evolution_simulator.traits import compute_phenotype_matrix
 
 WEEKS = 12000
 SAMPLE = 500

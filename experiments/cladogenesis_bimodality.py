@@ -49,8 +49,10 @@ matplotlib.use("Agg")  # headless — no display needed
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from evolution_simulator.creature import GENE_DIMS, Creature
+from evolution_simulator.creature import Creature
+from evolution_simulator.genetics import GENE_DIMS
 from evolution_simulator.simulation import SimulationRunner
+from evolution_simulator.speciation_math import spherical_kmeans
 
 CONFIG = Path(__file__).resolve().parent / "simulation_configs" / "bimodality_experiment.toml"
 CREATURES_PER_HABITAT = 500  # 250 female + 250 male per habitat
@@ -201,7 +203,7 @@ def main() -> None:
         proj_cos = units @ per_hab_c.get(hab_ids[0], axis)  # cosine to Forest centroid
 
         # K=2 spherical k-means — for the detector signal comparison only
-        _, km_centroids = reg._spherical_kmeans(units, k=2, seed=w)
+        _, km_centroids = spherical_kmeans(units, k=2, seed=w)
         km_cos = float(km_centroids[0] @ km_centroids[1])
 
         ts_weeks.append(w)

@@ -43,10 +43,13 @@ from pathlib import Path
 
 import numpy as np
 
-from .creature import GENE_DIMS, Creature
-from .habitat import LOGGED_TRAITS, Habitat
+from .creature import Creature
+from .genetics import GENE_DIMS
+from .habitat import Habitat
 from .habitats import HABITAT_TYPE_REGISTRY
+from .log_builder import StatsAccumulator
 from .species import SpeciesRegistry
+from .traits import LOGGED_TRAITS
 
 logger = logging.getLogger(__name__)
 
@@ -82,18 +85,9 @@ class SimulationRunner:
         self.log_dir: Path | None = None
         self._total_hybridization_events: int = 0
 
-        # Accumulators for interval_stats — reset each time a stats snapshot is written.
-        self._bin_start_week: int = 1
-        self._bin_deaths_by_cause: Counter = Counter()
-        self._bin_deaths_by_species: Counter = Counter()
-        self._bin_births_by_habitat: Counter = Counter()
-        self._bin_births_by_species: Counter = Counter()
-        self._bin_births_by_habitat_species: Counter = Counter()  # (hab_id, species) → count
-        self._bin_migrations_by_route: Counter = Counter()  # (from_id, to_id) → count
-        self._bin_mating_attempts: int = 0
-        self._bin_fertilizations: int = 0
-        self._bin_hybrid_conceptions: int = 0
-        self._bin_isolation_events: list[dict] = []
+        # Buffers interval_stats between logging flushes; flushed each time a
+        # stats snapshot is written.
+        self._stats = StatsAccumulator(start_week=1)
         self._all_isolation_events: list[dict] = []
 
     # ------------------------------------------------------------------
@@ -397,31 +391,8 @@ class SimulationRunner:
                     self._total_hybridization_events += 1
 
         # --- Accumulate interval stats (flushed to week log on stats cadence) ---
-        for hab_id, result in habitat_results.items():
-            for cid in result.get("deaths", []) + result.get("predation_deaths", []):
-                wr = result.get("week_results", {}).get(cid, {})
-                self._bin_deaths_by_cause[wr.get("cause_of_death", "unknown")] += 1
-                self._bin_deaths_by_species[wr.get("species", "unknown")] += 1
-            for creature in result.get("births", []):
-                self._bin_births_by_habitat[hab_id] += 1
-                self._bin_births_by_species[creature.species] += 1
-                self._bin_births_by_habitat_species[(hab_id, creature.species)] += 1
-            for ev in result.get("mating_events", []):
-                self._bin_mating_attempts += 1
-                if ev.get("fertilized"):
-                    self._bin_fertilizations += 1
-                if "hybridization" in ev:
-                    self._bin_hybrid_conceptions += 1
-            for blocked_neighbor in result.get("isolations", []):
-                event = {
-                    "week": self.week,
-                    "from_habitat": hab_id,
-                    "blocked_neighbor": blocked_neighbor,
-                }
-                self._bin_isolation_events.append(event)
-                self._all_isolation_events.append(event)
-        for entry in migration_log:
-            self._bin_migrations_by_route[(entry["from_habitat"], entry["to_habitat"])] += 1
+        new_isolation_events = self._stats.record_week(self.week, habitat_results, migration_log)
+        self._all_isolation_events.extend(new_isolation_events)
 
         # --- Cheap aggregates, computed EVERY week (progress + extinction) ---
         total_pop = sum(h.population_size for h in self.habitats.values())
@@ -554,35 +525,7 @@ class SimulationRunner:
             week_log["habitat_stats"] = habitat_stats
             week_log["species_stats"] = species_stats
 
-            births_by_hab_species: dict = {}
-            for (hid, sp), count in self._bin_births_by_habitat_species.items():
-                births_by_hab_species.setdefault(hid, {})[sp] = count
-
-            week_log["interval_stats"] = {
-                "weeks_covered": [self._bin_start_week, self.week],
-                "deaths": {
-                    "total": sum(self._bin_deaths_by_cause.values()),
-                    "by_cause": dict(self._bin_deaths_by_cause),
-                    "by_species": dict(self._bin_deaths_by_species),
-                },
-                "births": {
-                    "total": sum(self._bin_births_by_habitat.values()),
-                    "by_habitat": dict(self._bin_births_by_habitat),
-                    "by_species": dict(self._bin_births_by_species),
-                    "by_habitat_and_species": births_by_hab_species,
-                },
-                "migrations": {
-                    "total": sum(self._bin_migrations_by_route.values()),
-                    "by_route": {f"{f}→{t}": n for (f, t), n in self._bin_migrations_by_route.items()},
-                },
-                "mating": {
-                    "total_pairings": self._bin_mating_attempts,
-                    "fertilizations": self._bin_fertilizations,
-                    "hybrid_conceptions": self._bin_hybrid_conceptions,
-                },
-                "isolation_events": self._bin_isolation_events,
-            }
-            self._reset_bin_accumulators()
+            week_log["interval_stats"] = self._stats.flush_interval(self.week)
 
         # ------------------------------------------------------------------
         # (D) EXPENSIVE event detail — only when include_events.
@@ -722,16 +665,3 @@ class SimulationRunner:
             if inst["id"] == hab_id:
                 return inst
         return {}
-
-    def _reset_bin_accumulators(self) -> None:
-        self._bin_start_week = self.week + 1
-        self._bin_deaths_by_cause = Counter()
-        self._bin_deaths_by_species = Counter()
-        self._bin_births_by_habitat = Counter()
-        self._bin_births_by_species = Counter()
-        self._bin_births_by_habitat_species = Counter()
-        self._bin_migrations_by_route = Counter()
-        self._bin_mating_attempts = 0
-        self._bin_fertilizations = 0
-        self._bin_hybrid_conceptions = 0
-        self._bin_isolation_events = []

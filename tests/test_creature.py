@@ -1,7 +1,8 @@
 import numpy as np
 import pytest
 
-from evolution_simulator.creature import DEFAULT_TRAIT_GENE_INDICES, GENE_DIMS, Creature
+from evolution_simulator.creature import Creature
+from evolution_simulator.genetics import DEFAULT_TRAIT_GENE_INDICES, GENE_DIMS
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -392,7 +393,7 @@ def compatible_pair():
     (cosine similarity very close to 1.0) and low selectivity so the
     threshold is easy to exceed.
     """
-    from evolution_simulator.creature import DEFAULT_TRAIT_GENE_INDICES
+    from evolution_simulator.genetics import DEFAULT_TRAIT_GENE_INDICES
 
     rng = np.random.default_rng(123)
     base_genes = rng.standard_normal(GENE_DIMS)
@@ -525,7 +526,7 @@ class TestReproduce:
     def test_child_genes_drawn_from_parents(self, compatible_pair):
         """Every child gene locus must equal one of the two parents' values
         (before any mutation).  We verify this by zeroing mutation rate."""
-        from evolution_simulator.creature import DEFAULT_TRAIT_GENE_INDICES
+        from evolution_simulator.genetics import DEFAULT_TRAIT_GENE_INDICES
 
         male, female = compatible_pair
 
@@ -554,7 +555,7 @@ class TestReproduce:
         """Each sibling gets an independent Mendelian draw — genomes must differ."""
         male, female = compatible_pair
         # Force high fecundity to guarantee multiple siblings
-        from evolution_simulator.creature import DEFAULT_TRAIT_GENE_INDICES
+        from evolution_simulator.genetics import DEFAULT_TRAIT_GENE_INDICES
 
         fec_idx = DEFAULT_TRAIT_GENE_INDICES["fecundity"]
         male.genes[fec_idx] = 10.0
@@ -590,7 +591,7 @@ class TestReproduce:
 
     def test_mutation_can_alter_gene(self, compatible_pair):
         """With mutation rate forced high, child genes will differ from parents."""
-        from evolution_simulator.creature import DEFAULT_TRAIT_GENE_INDICES
+        from evolution_simulator.genetics import DEFAULT_TRAIT_GENE_INDICES
 
         male, female = compatible_pair
         mut_idx = DEFAULT_TRAIT_GENE_INDICES["mutation_rate"]
@@ -620,7 +621,7 @@ class TestReproduce:
 
     def test_low_fertility_blocks_conception(self, compatible_pair):
         """With reproduction_likelihood forced to zero, no offspring are produced."""
-        from evolution_simulator.creature import DEFAULT_TRAIT_GENE_INDICES
+        from evolution_simulator.genetics import DEFAULT_TRAIT_GENE_INDICES
 
         male, female = compatible_pair
         rl_idx = DEFAULT_TRAIT_GENE_INDICES["reproduction_likelihood"]
@@ -639,7 +640,7 @@ class TestReproduce:
 
     def test_high_fertility_allows_conception(self, compatible_pair):
         """With reproduction_likelihood forced high, conception should succeed."""
-        from evolution_simulator.creature import DEFAULT_TRAIT_GENE_INDICES
+        from evolution_simulator.genetics import DEFAULT_TRAIT_GENE_INDICES
 
         male, female = compatible_pair
         rl_idx = DEFAULT_TRAIT_GENE_INDICES["reproduction_likelihood"]
