@@ -6,62 +6,46 @@ Cross-machine task tracking for active development items.
 
 ## Immediate / Next Session
 
-### Modular refactor — break up the four monolith files
+### Modular refactor — break up the four monolith files — DONE
 
-The four core files have grown to 740–1244 lines each and are hard to navigate.
-The refactor goal is to make each file do one clear thing; the extracted modules
-below are already well-isolated by dependency and have no circular risks.
+Split the four core monoliths into single-responsibility modules. All 270 tests
+pass; the moved gene constants were verified byte-identical to HEAD, and the OWA
+kernel (previously triplicated) collapsed to one `genetics.owa_aggregate` with a
+bit-exact equivalence check.
 
-Proposed new modules (all under `evolution_simulator/`):
+Five new modules under `evolution_simulator/`:
 
-**`genetics.py`** (~200 lines extracted from `creature.py` + `habitat.py`)**
-Consolidates all gene-layout constants into one place: `GENE_DIMS`,
-`DEFAULT_TRAIT_GENE_INDICES`, `FOOD_GENE_INDICES`, `WATER_GENE_INDICES`,
-`COMPATIBILITY_GENE_INDICES`. Eliminates `HABITAT_VECTOR_DIMS = 500` in
-`habitat.py` which is just a manual duplicate of `GENE_DIMS`. Single source
-of truth for the genome layout — anything that needs a gene index set imports
-from here.
+- **`genetics.py`** — single source of truth for genome layout: `GENE_DIMS`,
+  `DEFAULT_TRAIT_GENE_INDICES`, `DEFAULT_FOOD_GENE_INDICES`,
+  `DEFAULT_WATER_GENE_INDICES`, plus the OWA genotype→phenotype kernel
+  (`DEFAULT_OWA_ALPHA`, `owa_aggregate`, `owa_value`) and the resource-geometry
+  design note. (Note: there is no standalone `COMPATIBILITY_GENE_INDICES`
+  constant — `compatibility_genes`/`sex_determination` are keys inside
+  `DEFAULT_TRAIT_GENE_INDICES`.) `HABITAT_VECTOR_DIMS` is kept as a derived
+  domain constant in `habitat.py` (`= GENE_DIMS`), not a duplicate literal.
+- **`traits.py`** — trait catalogs + bulk measurement: `LOGGED_TRAITS`,
+  `_TRAIT_SCALING`, `_TRAIT_INTERNAL_KEY`, `_batch_compute_traits`,
+  `PHENOTYPE_TRAITS`, `compute_phenotype_matrix`, `compute_phenotype`. Imports
+  genetics only — no `Creature` import (clean DAG: genetics ← creature, genetics
+  ← traits, no creature↔traits edge). `Creature._compute_trait` now calls the
+  shared `owa_value`.
+- **`mating.py`** — all four strategies + helpers as free functions
+  (`_gale_shapley`, `_build_compatibility_matrix`, `_mate_*`, `_attempt_mating`).
+  `MATING_SHARPNESS_K` is passed explicitly; `Habitat.simulate_week` dispatches.
+- **`speciation_math.py`** — only the genuinely pure helpers (`cos`, `unit_rows`,
+  `kmeanspp_init`, `spherical_kmeans`). `_select_clusters` (reads config) and
+  `_closest_centroid` / `_closest_candidate` / `_rebuild_centroid_matrix` (read
+  instance state) correctly stayed on `SpeciesRegistry`.
+- **`log_builder.py`** — `StatsAccumulator` (the former dozen `_bin_*` fields)
+  with `record_week` / `flush_interval` / `build_interval_stats` / `reset`. The
+  `_build_week_log` / `_write_*` methods stayed on `SimulationRunner`: they read
+  pervasive runner state, so relocating them would couple, not decouple.
 
-**`traits.py`** (~200 lines extracted from `habitat.py` + `creature.py`)**
-Everything about how traits are defined and measured: `LOGGED_TRAITS`,
-`_TRAIT_SCALING`, `_TRAIT_INTERNAL_KEY`, `_batch_compute_traits()` (currently
-module-level in `habitat.py`), and `PHENOTYPE_TRAITS` + `compute_phenotype_matrix`
-/ `compute_phenotype` (currently at the bottom of `creature.py`). Separates
-"what traits exist and how to measure them in bulk" from the `Creature` class
-itself; OWA `_compute_trait` stays on `Creature` since it reads instance genes.
-
-**`mating.py`** (~500 lines extracted from `habitat.py`)**
-All four mating strategies as standalone functions plus their helpers: `_gale_shapley`
-(166 lines on its own), `_build_compatibility_matrix`, `_mate_zip`,
-`_mate_species_priority`, `_mate_weighted_matrix`, `_mate_stable_matching`,
-`_attempt_mating`. `Habitat.simulate_week` dispatches by name. The mating
-algorithms have no state dependency on `Habitat` beyond the male/female lists
-and a few constants, so extraction is clean. This alone cuts `habitat.py` by
-almost half.
-
-**`speciation_math.py`** (~300 lines extracted from `species.py`)**
-The pure-math helpers that live as static methods on `SpeciesRegistry` for no
-good reason: `_cos`, `_unit_rows`, `_kmeanspp_init`, `_spherical_kmeans`,
-`_select_clusters`, `_rebuild_centroid_matrix`, `_closest_centroid`,
-`_closest_candidate`. `SpeciesRegistry` becomes a pure orchestrator of
-species-level events; the math is importable and testable on its own.
-
-**`log_builder.py`** (~350 lines extracted from `simulation.py`)**
-All log construction and file I/O from `SimulationRunner`: `_build_week_log`,
-`_write_week_log`, `_write_metadata`, `_write_summary`. Also: promote the
-`_bin_*` accumulator fields into a `StatsAccumulator` class with `feed()`,
-`flush()`, and `reset()` methods — currently a dozen raw Counter/int attributes
-sitting on `SimulationRunner`. After extraction, `SimulationRunner` is pure
-orchestration (~350 lines) and the log machinery is testable in isolation.
-
-**Expected outcome after refactor:**
-- `creature.py`: ~650 lines (trait properties + `simulate_week` + reproduction)
-- `habitat.py`: ~450 lines (resource geometry, isolation, `simulate_week` loop)
-- `species.py`: ~600 lines (`SpeciesRegistry` orchestration, no math helpers)
-- `simulation.py`: ~350 lines (world setup + week loop + extinction check)
-
-No behaviour changes — this is a pure structural move. All tests should pass
-unchanged after import paths are updated.
+Final cleanup removed all back-compat re-export shims; every consumer (package
+internals, tests, `__init__.py`, experiments) now imports each symbol from its
+canonical home. Line counts: creature 1244→564, habitat 1149→571, species
+912→783, simulation 737→667; new modules genetics 679, traits 240, mating 426,
+speciation_math 144, log_builder 116.
 
 ---
 

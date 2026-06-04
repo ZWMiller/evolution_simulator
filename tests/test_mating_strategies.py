@@ -11,7 +11,8 @@ from collections import defaultdict
 
 import numpy as np
 
-from evolution_simulator.creature import DEFAULT_TRAIT_GENE_INDICES, GENE_DIMS, Creature
+from evolution_simulator.creature import Creature
+from evolution_simulator.genetics import DEFAULT_TRAIT_GENE_INDICES, GENE_DIMS
 from evolution_simulator.habitat import Habitat
 
 # ---------------------------------------------------------------------------
@@ -356,7 +357,7 @@ class TestWeightedMatrixStrategy:
         Creatures with low selectivity should hybridise at a higher rate than
         those with high selectivity under weighted_matrix.
         """
-        from evolution_simulator.creature import DEFAULT_TRAIT_GENE_INDICES, GENE_DIMS
+        from evolution_simulator.genetics import DEFAULT_TRAIT_GENE_INDICES, GENE_DIMS
 
         def hybrid_rate(selectivity_value: float, n_trials: int = 40) -> float:
             hybrids = 0
@@ -405,10 +406,12 @@ class TestWeightedMatrixStrategy:
 
     def test_build_compatibility_matrix_shape_and_range(self):
         """_build_compatibility_matrix returns (M, F) with values in [-1, 1]."""
+        from evolution_simulator.mating import _build_compatibility_matrix
+
         rng = np.random.default_rng(42)
         males = [_make_creature(rng.standard_normal(500), "male", "s") for _ in range(5)]
         females = [_make_creature(rng.standard_normal(500), "female", "s") for _ in range(7)]
-        mat = Habitat._build_compatibility_matrix(males, females)
+        mat = _build_compatibility_matrix(males, females)
         assert mat.shape == (5, 7)
         assert mat.min() >= -1.0 and mat.max() <= 1.0
 
@@ -462,7 +465,7 @@ class TestStableMatchingStrategy:
         We test this directly on _gale_shapley() with a known score matrix so
         the result is deterministic (fixed seed via np.random.seed).
         """
-        from evolution_simulator.habitat import _gale_shapley
+        from evolution_simulator.mating import _gale_shapley
 
         np.random.seed(0)
         M, F = 8, 8
@@ -543,14 +546,14 @@ class TestStableMatchingStrategy:
     # --- _gale_shapley unit tests --------------------------------------------
 
     def test_gale_shapley_empty_inputs(self):
-        from evolution_simulator.habitat import _gale_shapley
+        from evolution_simulator.mating import _gale_shapley
 
         assert _gale_shapley(np.zeros((0, 5)), np.array([]), np.full(5, 0.7)) == []
         assert _gale_shapley(np.zeros((5, 0)), np.full(5, 0.7), np.array([])) == []
 
     def test_gale_shapley_all_below_threshold(self):
         """When no scores clear the threshold, nobody is matched."""
-        from evolution_simulator.habitat import _gale_shapley
+        from evolution_simulator.mating import _gale_shapley
 
         scores = np.full((4, 4), 0.5)  # all below 0.70
         thresholds = np.full(4, 0.70)
@@ -562,7 +565,7 @@ class TestStableMatchingStrategy:
         When each male scores 0.99 with his same-index female and 0.71 with all
         others, the stable matching should be the diagonal pairing.
         """
-        from evolution_simulator.habitat import _gale_shapley
+        from evolution_simulator.mating import _gale_shapley
 
         N = 5
         # Off-diagonal scores all just above floor (0.71); diagonal at 0.99
@@ -582,7 +585,7 @@ class TestStableMatchingStrategy:
 
     def test_gale_shapley_unequal_pool_sizes(self):
         """With more males than females, some males go unmatched; no female is double-matched."""
-        from evolution_simulator.habitat import _gale_shapley
+        from evolution_simulator.mating import _gale_shapley
 
         M, F = 6, 3
         rng = np.random.default_rng(7)

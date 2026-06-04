@@ -1,15 +1,15 @@
 import numpy as np
 import pytest
 
-from evolution_simulator.creature import (
-    DEFAULT_TRAIT_GENE_INDICES,
-    GENE_DIMS,
+from evolution_simulator.creature import Creature
+from evolution_simulator.genetics import DEFAULT_TRAIT_GENE_INDICES, GENE_DIMS
+from evolution_simulator.speciation_math import unit_rows
+from evolution_simulator.species import ADJECTIVES, NOUNS, SpeciesRegistry
+from evolution_simulator.traits import (
     PHENOTYPE_TRAITS,
-    Creature,
     compute_phenotype,
     compute_phenotype_matrix,
 )
-from evolution_simulator.species import ADJECTIVES, NOUNS, SpeciesRegistry
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -739,7 +739,7 @@ class TestClustering:
         b = rng.standard_normal(245)
         A = a + 0.01 * rng.standard_normal((6, 245))
         B = b + 0.01 * rng.standard_normal((6, 245))
-        X = reg._unit_rows(np.vstack([A, B]))
+        X = unit_rows(np.vstack([A, B]))
         labels, centroids = reg._select_clusters(X, seed=0)
         assert centroids.shape[0] == 2
         assert len(set(labels[:6].tolist())) == 1
@@ -750,7 +750,7 @@ class TestClustering:
         reg = SpeciesRegistry()
         rng = np.random.default_rng(3)
         a = rng.standard_normal(245)
-        X = reg._unit_rows(a + 0.01 * rng.standard_normal((10, 245)))
+        X = unit_rows(a + 0.01 * rng.standard_normal((10, 245)))
         _, centroids = reg._select_clusters(X, seed=0)
         assert centroids.shape[0] == 1
 

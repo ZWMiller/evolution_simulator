@@ -1,8 +1,8 @@
-from .creature import DEFAULT_TRAIT_GENE_INDICES as DEFAULT_TRAIT_GENE_INDICES
-from .creature import GENE_DIMS as GENE_DIMS
 from .creature import Creature as Creature
-from .habitat import DEFAULT_FOOD_GENE_INDICES as DEFAULT_FOOD_GENE_INDICES
-from .habitat import DEFAULT_WATER_GENE_INDICES as DEFAULT_WATER_GENE_INDICES
+from .genetics import DEFAULT_FOOD_GENE_INDICES as DEFAULT_FOOD_GENE_INDICES
+from .genetics import DEFAULT_TRAIT_GENE_INDICES as DEFAULT_TRAIT_GENE_INDICES
+from .genetics import DEFAULT_WATER_GENE_INDICES as DEFAULT_WATER_GENE_INDICES
+from .genetics import GENE_DIMS as GENE_DIMS
 from .habitat import Habitat as Habitat
 from .habitats import HABITAT_TYPE_REGISTRY as HABITAT_TYPE_REGISTRY
 from .habitats import Alpine as Alpine

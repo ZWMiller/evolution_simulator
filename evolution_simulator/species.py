@@ -42,12 +42,10 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from .creature import (
-    DEFAULT_TRAIT_GENE_INDICES,
-    Creature,
-    compute_phenotype,
-    compute_phenotype_matrix,
-)
+from .creature import Creature
+from .genetics import DEFAULT_TRAIT_GENE_INDICES
+from .speciation_math import cos, spherical_kmeans, unit_rows
+from .traits import compute_phenotype, compute_phenotype_matrix
 
 if TYPE_CHECKING:
     pass
@@ -426,12 +424,12 @@ class SpeciesRegistry:
             if len(members) < 2 * self.min_species_population:
                 continue
             compat = np.stack([self._compat(c.genes) for c in members])
-            units = self._unit_rows(compat)
+            units = unit_rows(compat)
             labels, centroids = self._select_clusters(units, seed=current_week)
             if centroids.shape[0] == 1:
                 continue
 
-            type_unit = self._unit_rows(self._compat(self._registry[sp])[np.newaxis, :])[0]
+            type_unit = unit_rows(self._compat(self._registry[sp])[np.newaxis, :])[0]
             primary = int(np.argmax(centroids @ type_unit))
 
             for j in range(centroids.shape[0]):
@@ -453,7 +451,7 @@ class SpeciesRegistry:
                     rep = max(
                         sub_members,
                         key=lambda m: float(
-                            self._unit_rows(self._compat(m.genes)[np.newaxis, :])[0] @ sub_centroid
+                            unit_rows(self._compat(m.genes)[np.newaxis, :])[0] @ sub_centroid
                         ),
                     )
                     new_cid = f"cand_{self._next_candidate_id}"
@@ -524,7 +522,7 @@ class SpeciesRegistry:
             phc = ph - 0.5
             cc = centroid - 0.5
             tc = type_ph - 0.5
-            if self._cos(cc, tc) >= self.anagenesis_threshold:
+            if cos(cc, tc) >= self.anagenesis_threshold:
                 self._anagenesis_pending.pop(sp, None)  # rebounded → reset clock
                 continue
 
@@ -542,9 +540,7 @@ class SpeciesRegistry:
             if current_week - first_seen < self.anagenesis_weeks:
                 continue
 
-            mover_pairs = [
-                (i, m) for i, m in enumerate(members) if self._cos(phc[i], cc) > self._cos(phc[i], tc)
-            ]
+            mover_pairs = [(i, m) for i, m in enumerate(members) if cos(phc[i], cc) > cos(phc[i], tc)]
             if len(mover_pairs) < self.min_species_population:
                 continue
 
@@ -562,7 +558,7 @@ class SpeciesRegistry:
             for existing_sp, existing_type_ph in self._type_phenotype.items():
                 if existing_sp == sp:
                     continue
-                if self._cos(mover_centroid_ph_c, existing_type_ph - 0.5) >= self.anagenesis_threshold:
+                if cos(mover_centroid_ph_c, existing_type_ph - 0.5) >= self.anagenesis_threshold:
                     existing_match = existing_sp
                     break
             if existing_match is not None:
@@ -571,7 +567,7 @@ class SpeciesRegistry:
                 self._anagenesis_pending.pop(sp, None)
                 continue
 
-            rep = max(mover_pairs, key=lambda im: self._cos(phc[im[0]], cc))[1]
+            rep = max(mover_pairs, key=lambda im: cos(phc[im[0]], cc))[1]
             movers = [m for _, m in mover_pairs]
             mover_compat = np.mean(np.stack([self._compat(m.genes) for m in movers]), axis=0)
             new_name = self._unique_name()
@@ -715,133 +711,6 @@ class SpeciesRegistry:
                 best_cid = cid
         return best_cid, best_score
 
-    # ------------------------------------------------------------------
-    # Spherical k-means (for sub-cluster split detection)
-    # ------------------------------------------------------------------
-    # We need to partition a species' members in COSINE geometry, because
-    # cosine is the metric that governs mating compatibility.  "Spherical"
-    # k-means is ordinary k-means run on L2-normalized vectors: once every
-    # point lies on the unit sphere, squared Euclidean distance and cosine are
-    # equivalent objectives —
-    #     ||x - c||^2 = 2 - 2 (x . c)     for unit x, c
-    # so minimizing Euclidean distortion is the same as maximizing cosine
-    # similarity to the assigned centre.  Implemented in numpy rather than
-    # scikit-learn: at this scale (small per-species n, dim 245, K <=
-    # split_max_k, run only every respeciate_every weeks) the optimised library
-    # buys nothing and would add a heavy sklearn+scipy dependency.
-
-    @staticmethod
-    def _cos(a: np.ndarray, b: np.ndarray) -> float:
-        """Cosine similarity of two vectors in [-1, 1] (0 if either is ~zero)."""
-        na = float(np.linalg.norm(a))
-        nb = float(np.linalg.norm(b))
-        if na < 1e-12 or nb < 1e-12:
-            return 0.0
-        return float(np.clip(np.dot(a, b) / (na * nb), -1.0, 1.0))
-
-    @staticmethod
-    def _unit_rows(mat: np.ndarray) -> np.ndarray:
-        """
-        Project each row onto the unit sphere (L2-normalize).
-
-        This is the step that turns ordinary k-means into *spherical* k-means:
-        on unit vectors, the dot product X @ Cᵀ IS the cosine similarity, so all
-        downstream assignment and centroid maths operate in cosine geometry.
-        Zero-length rows are left unscaled to avoid division by zero.
-        """
-        norms = np.linalg.norm(mat, axis=1, keepdims=True)
-        norms = np.where(norms < 1e-12, 1.0, norms)
-        return mat / norms
-
-    @staticmethod
-    def _kmeanspp_init(X: np.ndarray, k: int, rng: np.random.Generator) -> np.ndarray:
-        """
-        Choose k initial centres with k-means++ (cosine variant).
-
-        k-means++ spreads the seeds out so Lloyd's iterations are far less
-        likely to land in a poor local optimum than uniform-random seeding:
-
-          1. Pick the first centre uniformly at random from the points.
-          2. For every point compute its cosine distance (1 - cosine) to the
-             NEAREST centre chosen so far.
-          3. Pick the next centre at random with probability proportional to
-             that distance — points far from all current centres are the most
-             likely to be chosen.
-          4. Repeat 2-3 until k centres are chosen.
-
-        X is assumed to have unit rows, so ``X @ centresᵀ`` is cosine similarity.
-        """
-        n = X.shape[0]
-        centroids = [X[rng.integers(n)]]
-        for _ in range(1, k):
-            sims = X @ np.stack(centroids).T  # (n, chosen) cosine
-            dist = np.clip(1.0 - sims.max(axis=1), 0.0, None)  # dist to nearest centre
-            total = float(dist.sum())
-            if total <= 1e-12:  # all points coincide
-                centroids.append(X[rng.integers(n)])
-            else:
-                centroids.append(X[rng.choice(n, p=dist / total)])
-        return np.stack(centroids)
-
-    def _spherical_kmeans(
-        self, X: np.ndarray, k: int, seed: int, n_init: int = 3, max_iter: int = 50
-    ) -> tuple[np.ndarray, np.ndarray]:
-        """
-        Cluster unit-row matrix X into k clusters with spherical k-means.
-
-        Runs Lloyd's algorithm ``n_init`` times from independent k-means++
-        seedings and keeps the best result, where "best" maximizes the total
-        cosine similarity of points to their assigned centre (the spherical
-        analogue of minimizing k-means inertia).
-
-        Each Lloyd iteration:
-          - **Assign**: label every point by its most-similar centre
-            (``argmax`` of the cosine matrix ``X @ centresᵀ``).
-          - **Update**: recompute each centre as the *spherical mean* of its
-            members — sum the member unit vectors and re-normalize, which is the
-            point on the sphere maximizing summed cosine to the cluster.
-          - An emptied cluster is reseeded to a random point so k clusters are
-            always returned.
-          - Iteration stops once labels stop changing (converged) or after
-            ``max_iter`` sweeps.
-
-        ``seed`` makes the result deterministic (the whole simulation is
-        seeded), so repeated runs reproduce the same partition.
-
-        Returns
-        -------
-        (labels, centroids) : labels is (n,) int; centroids is (k, d) with UNIT
-        rows, so callers can take dot products as cosines directly.
-        """
-        rng = np.random.default_rng(seed)
-        n = X.shape[0]
-        best_labels: np.ndarray | None = None
-        best_centroids: np.ndarray | None = None
-        best_inertia = -np.inf  # total cosine-to-centre; maximize
-        for _ in range(n_init):
-            centroids = self._kmeanspp_init(X, k, rng)
-            labels = np.full(n, -1, dtype=int)
-            for _ in range(max_iter):
-                new_labels = np.argmax(X @ centroids.T, axis=1)  # assign
-                for j in range(k):  # update
-                    pts = X[new_labels == j]
-                    if len(pts) == 0:
-                        centroids[j] = X[rng.integers(n)]  # reseed empty cluster
-                    else:
-                        c = pts.sum(axis=0)
-                        nrm = float(np.linalg.norm(c))
-                        centroids[j] = c / nrm if nrm > 1e-12 else pts[0]  # spherical mean
-                if np.array_equal(new_labels, labels):
-                    labels = new_labels
-                    break  # converged
-                labels = new_labels
-            inertia = float((X @ centroids.T)[np.arange(n), labels].sum())
-            if inertia > best_inertia:
-                best_inertia = inertia
-                best_labels = labels.copy()
-                best_centroids = centroids.copy()
-        return best_labels, best_centroids
-
     def _select_clusters(self, X: np.ndarray, seed: int) -> tuple[np.ndarray, np.ndarray]:
         """
         Pick the number of reproductively-isolated sub-clusters in X.
@@ -868,7 +737,7 @@ class SpeciesRegistry:
 
         kmax = min(self.split_max_k, n // self.min_species_population)
         for k in range(2, kmax + 1):
-            labels, centroids = self._spherical_kmeans(X, k, seed + k)
+            labels, centroids = spherical_kmeans(X, k, seed + k)
             if (np.bincount(labels, minlength=k) < self.min_species_population).any():
                 continue  # a cluster too small
             pairwise = centroids @ centroids.T  # cosine (unit centres)

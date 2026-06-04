@@ -1,15 +1,15 @@
 import numpy as np
 import pytest
 
-from evolution_simulator.creature import DEFAULT_TRAIT_GENE_INDICES, GENE_DIMS, Creature
-from evolution_simulator.habitat import (
+from evolution_simulator.creature import Creature
+from evolution_simulator.genetics import (
     DEFAULT_FOOD_GENE_INDICES,
+    DEFAULT_TRAIT_GENE_INDICES,
     DEFAULT_WATER_GENE_INDICES,
-    HABITAT_VECTOR_DIMS,
-    LOGGED_TRAITS,
-    Habitat,
-    _batch_compute_traits,
+    GENE_DIMS,
 )
+from evolution_simulator.habitat import HABITAT_VECTOR_DIMS, Habitat
+from evolution_simulator.traits import LOGGED_TRAITS, _batch_compute_traits
 
 # ---------------------------------------------------------------------------
 # Shared helpers
