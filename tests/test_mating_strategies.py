@@ -99,6 +99,25 @@ def _count_within_species_matings(mating_events: list[dict]) -> dict[str, int]:
     return dict(counts)
 
 
+def _viable_single_species(rng, n_pairs: int = 5) -> tuple[list[Creature], list[Creature]]:
+    """N male + N female viable creatures of one species, built from ``rng``.
+
+    Near-identical compatibility genes, low selectivity, and high fertility, so
+    every pairing clears the compatibility floor and reliably conceives.  Returns
+    (males, females) ready to hand straight to a ``_mate_*`` function — these are
+    exactly the viable lists ``Habitat.simulate_week`` would build.  The same
+    ``rng`` is then passed to the mating function under test, so the whole test
+    runs off one generator.
+    """
+    base = _make_species_genome(rng, rng.standard_normal(GENE_DIMS))
+    base[DEFAULT_TRAIT_GENE_INDICES["reproduction_likelihood"]] = 10.0  # high fertility
+    males, females = [], []
+    for _ in range(n_pairs):
+        males.append(_make_creature(base + rng.standard_normal(GENE_DIMS) * 0.02, "male", "alpha"))
+        females.append(_make_creature(base + rng.standard_normal(GENE_DIMS) * 0.02, "female", "alpha"))
+    return males, females
+
+
 # ---------------------------------------------------------------------------
 # Strategy: zip (legacy behavior preserved)
 # ---------------------------------------------------------------------------
@@ -614,3 +633,90 @@ class TestUnknownStrategyFallback:
         result = hab.simulate_week(rng, mating_strategy="nonexistent_strategy")
         # Should not raise; should produce mating events (zip behavior)
         assert isinstance(result["mating_events"], list)
+
+
+# ---------------------------------------------------------------------------
+# Direct unit tests for each _mate_* pairing function
+# ---------------------------------------------------------------------------
+
+
+class TestMateFunctionsDirect:
+    """Call each ``_mate_*`` function directly.
+
+    The strategy classes above exercise these through ``Habitat.simulate_week``;
+    these pin down the function contract in isolation: the mating-event dict
+    shape, that pairing is 1:1 (no male or female reused within a week), and that
+    compatible same-species pools actually pair and conceive.  With 5 viable
+    males and 5 viable females all mutually compatible, every strategy should
+    match all five.
+    """
+
+    _EVENT_KEYS = {
+        "male_id",
+        "female_id",
+        "compatibility_score",
+        "compatible",
+        "fertilized",
+        "litter_size",
+        "offspring_ids",
+    }
+
+    def _assert_contract(self, events, males, females, expected_pairs):
+        male_ids = {m.creature_id for m in males}
+        female_ids = {f.creature_id for f in females}
+        assert isinstance(events, list)
+        assert len(events) == expected_pairs
+        seen_m, seen_f = [], []
+        for ev in events:
+            assert self._EVENT_KEYS <= set(ev), f"event missing keys: {self._EVENT_KEYS - set(ev)}"
+            assert ev["male_id"] in male_ids
+            assert ev["female_id"] in female_ids
+            seen_m.append(ev["male_id"])
+            seen_f.append(ev["female_id"])
+        # 1:1 pairing — no individual appears in two events
+        assert len(seen_m) == len(set(seen_m)), "a male was paired more than once"
+        assert len(seen_f) == len(set(seen_f)), "a female was paired more than once"
+        # Same-species near-identical pool: every pairing is compatible and conceives
+        assert all(ev["compatible"] for ev in events)
+        assert any(ev["fertilized"] for ev in events)
+
+    def test_mate_zip_direct(self, rng):
+        from evolution_simulator.mating import _mate_zip
+
+        males, females = _viable_single_species(rng, n_pairs=5)
+        events = _mate_zip(males, females, rng)
+        self._assert_contract(events, males, females, expected_pairs=5)
+
+    def test_mate_species_priority_direct(self, rng):
+        from evolution_simulator.mating import _mate_species_priority
+
+        males, females = _viable_single_species(rng, n_pairs=5)
+        events = _mate_species_priority(males, females, rng)
+        self._assert_contract(events, males, females, expected_pairs=5)
+
+    def test_mate_weighted_matrix_direct(self, rng):
+        from evolution_simulator.mating import _mate_weighted_matrix
+
+        males, females = _viable_single_species(rng, n_pairs=5)
+        events = _mate_weighted_matrix(males, females, 3.0, rng)
+        self._assert_contract(events, males, females, expected_pairs=5)
+
+    def test_mate_stable_matching_direct(self, rng):
+        from evolution_simulator.mating import _mate_stable_matching
+
+        males, females = _viable_single_species(rng, n_pairs=5)
+        events = _mate_stable_matching(males, females, rng)
+        self._assert_contract(events, males, females, expected_pairs=5)
+
+    def test_mate_functions_handle_empty_pools(self, rng):
+        from evolution_simulator.mating import (
+            _mate_species_priority,
+            _mate_stable_matching,
+            _mate_weighted_matrix,
+            _mate_zip,
+        )
+
+        assert _mate_zip([], [], rng) == []
+        assert _mate_species_priority([], [], rng) == []
+        assert _mate_weighted_matrix([], [], 3.0, rng) == []
+        assert _mate_stable_matching([], [], rng) == []
