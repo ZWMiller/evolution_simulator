@@ -6,26 +6,89 @@ Cross-machine task tracking for active development items.
 
 ## Immediate / Next Session
 
-### Diagnose high speciation rate
+### High speciation rate — diagnosed + calibrated; next is a DESIGN decision, then the merge fix
 
-The 5-biome 50k wheel run (2026-06-02_19-15-21) shows 575 total species by week
-19,200 — roughly 1 speciation event every 33 weeks across 3,000 creatures. That
-still feels too high despite the k-means-only cladogenesis changes on this branch.
+Full write-up: `reports/general_findings/speciation_churn_diagnosis.md` (corrected
+2026-06-04 with the calibration result). Short version below.
 
-**Approach:** run a short diagnostic sim (2,000–5,000 weeks) with
-`events_every = 1` (per-week event logging) and inspect the speciation events in
-detail:
-- What `event_type` is driving the volume — anagenesis, cladogenesis_kmeans_subcluster,
-  or cladogenesis_bootstrap (founding)?
-- Are most events candidates that get promoted, or are they born-and-die quickly
-  without ever reaching `min_species_weeks`?
-- What is the mean species lifetime? If it's short, high churn (rapid
-  birth+extinction) is the issue, not a high instantaneous count.
-- Are the high-population habitats (Wetlands, Plains) responsible for most events,
-  or is it spread evenly?
+**THE BIG QUESTION TO OPEN NEXT SESSION (raised by ZWM, wrap 2026-06-04).** Is the
+speciation component failing because **each habitat has a single optimal gene
+vector whose "gravity" is so strong that any two species starting near each other
+are inevitably pulled to the same optimal solution** — making all
+compatibility-space divergence *adaptively neutral* and therefore transient? If
+so, the model may be structurally incapable of *sustaining* sympatric (same-
+habitat) splits no matter how the detector is tuned — it can only do allopatric
+speciation (different habitats = different optima). Foundational modelling
+decision, not a detector fix; decide it BEFORE/alongside the merge work because it
+reframes the goal:
+- If we want sustained sympatric divergence → need **multi-peak / rugged habitat
+  fitness** (bank of K peak vectors per habitat, `P = max_k (cos θ_k + 1)/2`;
+  sketched under Derek's suggestions below) and/or frequency-dependent payoff
+  (being different is itself rewarded).
+- If we accept "only allopatric speciation is realistic" → the merge check is the
+  *entire* fix and the sympatric churn is expected biology.
 
-Check summary.json `speciation_events` list for `event_type` breakdown before
-building the full diagnostic to confirm which path is noisy.
+**Diagnosis (2026-06-04, from summary.json + 100-wk snapshots of the 50k wheel
+run 2026-06-02_19-15-21, seed 42, stable_matching).** The "high" count is
+**churn, not diversity**:
+- **Standing** diversity is flat and healthy: median **15** species alive at any
+  snapshot (range 9–31), ~3/habitat, never grows over 50k weeks. The alarming
+  **1,471 cumulative** species is turnover — species minted and going extinct at
+  a matched, constant rate.
+- **100% one mechanism:** all 1,456 events are `cladogenesis_kmeans_subcluster`.
+  **Zero anagenesis, zero post-founding bootstrap** (anagenesis never fires —
+  separate concern).
+- **Constant rate:** ~145 splits / 5,000 weeks for the whole run (≈1 / 34 wk),
+  no slowing or acceleration → steady-state process.
+- **Ephemeral species:** median lifetime **200 weeks** (~5–8 generations); 50%
+  live ≤200 wk; 16% appear in a single 100-wk snapshot. But median *peak*
+  population is 66, so they're real sub-populations, not noise blips.
+- **Pervasive:** 1,456 splits across **565 distinct parent lineages** (top parent
+  only 14; 258 parents split once) — population-wide, not a few runaway lineages.
+- **Promotion 62%:** 1,456 confirmed vs 881 candidates that evaporated; even
+  failures had median peak 21 members (>10 gate) and died ~69 wk (right at the
+  60-wk gate). Borderline promotions.
+
+**Mechanism — CONFIRMED + a hypothesis RULED OUT by calibration.**
+- `events_every = 1` confirmation run (`simulation_logs/diag_speciation/2026-06-04_21-06-08`):
+  47% of split-children interbreed with their parent *after* the split, at cosine
+  ~0.88 (vs same-species ~0.89).
+- The tempting fix was a member-level isolation gate (suspecting the centroid test
+  admitted still-interbreeding splits). We built + calibrated it FIRST
+  (`experiments/calibrate_split_isolation.py`, read-only observer over the same
+  deterministic trajectory). Result: **all 260 detected splits are member-level
+  isolated AT DETECTION** (interbreed fraction median 0.000, max 0.0036, 0/260
+  above 0.05; even at the centroid boundary cos∈[0.72,0.75], max overlap 0.0008).
+  So the centroid test and a member-level test AGREE at the split boundary — the
+  member gate would remove 0/260 splits.
+- => The leakiness is **post-split re-convergence, not over-eager splitting.**
+  Splits are isolated at birth, then re-converge (adaptively neutral, shared
+  habitat, gene flow) or drift to extinction — and the label never merges back.
+  Genes are not in the JSON logs, so calibration required re-running the sim
+  (cheap + exact since byte-reproducible), not post-processing.
+
+**Fixes:**
+1. **Species-merge / re-coalescence check** — THE churn fix. Two living species
+   whose cross-cluster **mating-success rate** (the validated `interbreed_fraction`
+   primitive in the calibration script) rises above a high threshold collapse to
+   the older name. Symmetric counterpart to the split detector; makes the count
+   non-monotonic, absorbs the re-converging ~47%, leaves standing diversity (~15)
+   untouched. Merge threshold well above the split gate for hysteresis.
+2. **Make mating-success the authoritative split gate (KEEP — ZWM prefers this;
+   more elegant/defensible than centroid).** Relax the centroid test to a cheap
+   loose pre-filter and gate the actual split on the cross-cluster
+   `interbreed_fraction` (real `is_compatible` mating success, incl. selectivity,
+   exhaustive over cross opposite-sex pairs). Calibration showed it's redundant at
+   the current 0.75 centroid threshold so it changes nothing today, but it ties
+   the split decision to the real mating mechanism (same primitive as the merge
+   check) and is robust to any later threshold/geometry change. Adopt regardless
+   of which broader direction we take.
+3. **Report standing diversity** (not just cumulative species count) in
+   summary.json / visualizers so runs are read correctly.
+
+Note: anagenesis fired **zero** times in both runs — likely downstream of the
+single-optimum question (a fixed optimum bounds phenotype drift). Revisit after
+the design decision.
 
 ---
 

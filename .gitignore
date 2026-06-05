@@ -34,3 +34,6 @@ venv/
 # Private notes — not for public repo
 literature_review/adjacent_researchers.md
 sim_run.log
+
+# Calibration script output (generated data, not checked in)
+experiments/calib_output/
