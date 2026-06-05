@@ -34,7 +34,6 @@ a visualiser.
 
 import json
 import logging
-import random
 import shutil
 import tomllib
 from collections import Counter
@@ -122,6 +121,21 @@ class SimulationRunner:
         )
         logger.info("Log directory: %s", self.log_dir)
 
+        # --- Determinism: one explicit Generator drives the entire run ---
+        # Created before anything that draws randomness.  This single Generator
+        # object is threaded through every stochastic path — the species
+        # registry's name draws, founding genomes, and each weekly dynamics draw
+        # (resource finding, predation, migration, mating, reproduction,
+        # isolation) — so the whole simulation runs off one explicit, seeded
+        # stream.  No global np.random / stdlib random seeding is needed because
+        # simulation logic never reads those singletons.  reset_creature_ids
+        # restarts the deterministic creature-ID counter.  The seed is also read
+        # here so each habitat instance can derive a deterministic per-instance
+        # seed from it when the config omits one.
+        seed = sim_cfg.get("seed", None)
+        self.rng = np.random.default_rng(seed)
+        reset_creature_ids()
+
         # --- Species registry ---
         species_cfg = self.config.get("species", {})
         compat_threshold = species_cfg.get(
@@ -138,6 +152,7 @@ class SimulationRunner:
         )
         anagenesis_weeks = species_cfg.get("anagenesis_weeks", SpeciesRegistry.DEFAULT_ANAGENESIS_WEEKS)
         self.species_registry = SpeciesRegistry(
+            rng=self.rng,
             compatibility_threshold=compat_threshold,
             min_species_population=min_pop,
             min_species_weeks=min_weeks,
@@ -146,19 +161,6 @@ class SimulationRunner:
             anagenesis_threshold=anagenesis_threshold,
             anagenesis_weeks=anagenesis_weeks,
         )
-
-        # --- Determinism: seed every RNG stream + the creature-ID counter ---
-        # Read the seed up front so each habitat instance vector can derive a
-        # deterministic seed from it when the config omits a per-instance seed.
-        # habitat.py and creature.py draw from the global np.random.* singleton
-        # and stdlib random; without seeding these they are OS-initialised and
-        # differ between runs even with the same config seed.
-        seed = sim_cfg.get("seed", None)
-        rng = np.random.default_rng(seed)
-        reset_creature_ids()
-        if seed is not None:
-            np.random.seed(seed)
-            random.seed(seed)
 
         # --- Habitats ---
         for idx, inst in enumerate(self.config["habitats"]["instances"]):
@@ -190,8 +192,9 @@ class SimulationRunner:
         # so the founding population survives the first generation with random metabolism.
         # Descendants still need to evolve; the bias only closes the viability gap.
         habitat_bias = sim_cfg.get("founding_habitat_bias", 0.0)
-        # `seed` and `rng` were established above (with the global RNGs seeded);
-        # the founding genomes below draw from `rng`.
+        # `seed` and `self.rng` were established above; the founding genomes below
+        # draw from `self.rng` — the same Generator the weekly loop later threads
+        # through simulate_week, so the whole run is one continuous stream.
 
         self._founders_by_hab: dict[str, list[dict]] = {hid: [] for hid in self.habitats}
         mirror = sim_cfg.get("mirror_founding_population", False)
@@ -204,7 +207,7 @@ class SimulationRunner:
             # simultaneously aligned to multiple different habitat vectors.
             founding_specs: list[tuple[np.ndarray, str]] = []
             for _ in range(global_n_species):
-                fg = rng.standard_normal(GENE_DIMS)
+                fg = self.rng.standard_normal(GENE_DIMS)
                 founding_specs.append((fg, self.species_registry.register_founding_species(fg)))
 
             for hab_id, hab in self.habitats.items():
@@ -213,7 +216,7 @@ class SimulationRunner:
                 )
                 for fg, sp_name in founding_specs:
                     for i in range(n_per):
-                        genes = fg + rng.standard_normal(GENE_DIMS) * genome_noise
+                        genes = fg + self.rng.standard_normal(GENE_DIMS) * genome_noise
                         creature = Creature(genes=genes)
                         creature.sex = "female" if i % 2 == 0 else "male"
                         creature.species = sp_name
@@ -234,7 +237,7 @@ class SimulationRunner:
                 n_per = inst_cfg.get("creatures_per_species", global_n_per_species)
 
                 for _ in range(n_species):
-                    random_genes = rng.standard_normal(GENE_DIMS)
+                    random_genes = self.rng.standard_normal(GENE_DIMS)
                     if habitat_bias > 0.0:
                         # Mix random genes with a scaled habitat direction so creatures
                         # start partially aligned to local resources.
@@ -246,7 +249,7 @@ class SimulationRunner:
                     species_name = self.species_registry.register_founding_species(founding_genes)
 
                     for i in range(n_per):
-                        genes = founding_genes + rng.standard_normal(GENE_DIMS) * genome_noise
+                        genes = founding_genes + self.rng.standard_normal(GENE_DIMS) * genome_noise
                         creature = Creature(genes=genes)
                         # Assign a 50/50 sex split directly so mating is possible
                         # regardless of what the founding genome's sex loci encode.
@@ -349,6 +352,7 @@ class SimulationRunner:
         mating_strategy = sim_cfg.get("mating_strategy", "zip")
         for hab_id, hab in self.habitats.items():
             result = hab.simulate_week(
+                self.rng,
                 species_registry=self.species_registry,
                 isolation_probability=iso_prob,
                 mating_strategy=mating_strategy,

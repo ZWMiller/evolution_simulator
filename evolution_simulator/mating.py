@@ -49,7 +49,7 @@ def _build_compatibility_matrix(males: list, females: list) -> np.ndarray:
     return np.clip(scores, -1.0, 1.0)
 
 
-def _attempt_mating(male, female) -> dict:
+def _attempt_mating(male, female, rng: np.random.Generator) -> dict:
     """Run one compatibility check + optional reproduce(); return the event dict."""
     compatible, score, reason = male.is_compatible(female)
     event: dict = {
@@ -62,7 +62,7 @@ def _attempt_mating(male, female) -> dict:
         "offspring_ids": [],
     }
     if compatible:
-        litter = male.reproduce(female)
+        litter = male.reproduce(female, rng)
         if litter:
             event["fertilized"] = True
             event["litter_size"] = len(litter)
@@ -79,7 +79,7 @@ def _attempt_mating(male, female) -> dict:
     return event
 
 
-def _mate_zip(viable_males: list, viable_females: list) -> list[dict]:
+def _mate_zip(viable_males: list, viable_females: list, rng: np.random.Generator) -> list[dict]:
     """
     Legacy zip-pairing strategy.
 
@@ -88,16 +88,16 @@ def _mate_zip(viable_males: list, viable_females: list) -> list[dict]:
     both individuals' mating opportunity for that week, which creates a severe
     minority-species penalty (Allee effect).
     """
-    np.random.shuffle(viable_males)
-    np.random.shuffle(viable_females)
+    rng.shuffle(viable_males)
+    rng.shuffle(viable_females)
     mating_events: list[dict] = []
     for male, female in zip(viable_males, viable_females, strict=False):
-        event = _attempt_mating(male, female)
+        event = _attempt_mating(male, female, rng)
         mating_events.append(event)
     return mating_events
 
 
-def _mate_species_priority(viable_males: list, viable_females: list) -> list[dict]:
+def _mate_species_priority(viable_males: list, viable_females: list, rng: np.random.Generator) -> list[dict]:
     """
     Species-first priority pairing with cross-species spillover.
 
@@ -128,15 +128,15 @@ def _mate_species_priority(viable_males: list, viable_females: list) -> list[dic
     # permutation, so the pairing is reproducible run-to-run.
     all_species = set(males_by_species) | set(females_by_species)
     species_order = sorted(all_species)
-    np.random.shuffle(species_order)
+    rng.shuffle(species_order)
 
     for sp in species_order:
         sp_males = males_by_species.get(sp, [])
         sp_females = females_by_species.get(sp, [])
-        np.random.shuffle(sp_males)
-        np.random.shuffle(sp_females)
+        rng.shuffle(sp_males)
+        rng.shuffle(sp_females)
         for male, female in zip(sp_males, sp_females, strict=False):
-            event = _attempt_mating(male, female)
+            event = _attempt_mating(male, female, rng)
             mating_events.append(event)
         # Surplus individuals go to spillover
         n_paired = min(len(sp_males), len(sp_females))
@@ -144,10 +144,10 @@ def _mate_species_priority(viable_males: list, viable_females: list) -> list[dic
         spillover_females.extend(sp_females[n_paired:])
 
     # Cross-species hybridisation pass on leftovers
-    np.random.shuffle(spillover_males)
-    np.random.shuffle(spillover_females)
+    rng.shuffle(spillover_males)
+    rng.shuffle(spillover_females)
     for male, female in zip(spillover_males, spillover_females, strict=False):
-        event = _attempt_mating(male, female)
+        event = _attempt_mating(male, female, rng)
         mating_events.append(event)
 
     return mating_events
@@ -157,6 +157,7 @@ def _mate_weighted_matrix(
     viable_males: list,
     viable_females: list,
     mating_sharpness_k: float,
+    rng: np.random.Generator,
 ) -> list[dict]:
     """
     Full pairwise score matrix with selectivity-weighted sampling.
@@ -180,7 +181,7 @@ def _mate_weighted_matrix(
     # score_matrix[i, j] = compatibility between males[i] and females[j]
 
     female_order = list(range(len(viable_females)))
-    np.random.shuffle(female_order)
+    rng.shuffle(female_order)
 
     available_males = list(range(len(viable_males)))
     male_selectivities = np.array([m.selectivity for m in viable_males])
@@ -208,18 +209,18 @@ def _mate_weighted_matrix(
             continue
         probs = weights / total
 
-        chosen_pool_idx = int(np.random.choice(len(available_males), p=probs))
+        chosen_pool_idx = int(rng.choice(len(available_males), p=probs))
         chosen_male_idx = available_males[chosen_pool_idx]
         male = viable_males[chosen_male_idx]
 
-        event = _attempt_mating(male, female)
+        event = _attempt_mating(male, female, rng)
         mating_events.append(event)
         available_males.pop(chosen_pool_idx)
 
     return mating_events
 
 
-def _mate_stable_matching(viable_males: list, viable_females: list) -> list[dict]:
+def _mate_stable_matching(viable_males: list, viable_females: list, rng: np.random.Generator) -> list[dict]:
     """
     Mutual-preference stable matching via Gale-Shapley deferred acceptance.
 
@@ -250,11 +251,11 @@ def _mate_stable_matching(viable_males: list, viable_females: list) -> list[dict
         [Creature.COMPATIBILITY_FLOOR + 0.15 * f.selectivity for f in viable_females]
     )
 
-    pairs = _gale_shapley(score_matrix, male_thresholds, female_thresholds)
+    pairs = _gale_shapley(score_matrix, male_thresholds, female_thresholds, rng)
 
     mating_events: list[dict] = []
     for male_idx, female_idx in pairs:
-        event = _attempt_mating(viable_males[male_idx], viable_females[female_idx])
+        event = _attempt_mating(viable_males[male_idx], viable_females[female_idx], rng)
         mating_events.append(event)
 
     return mating_events
@@ -264,6 +265,7 @@ def _gale_shapley(
     score_matrix: np.ndarray,
     male_thresholds: np.ndarray,
     female_thresholds: np.ndarray,
+    rng: np.random.Generator,
 ) -> list[tuple[int, int]]:
     """
     Male-proposing Gale-Shapley deferred-acceptance stable matching.
@@ -285,6 +287,10 @@ def _gale_shapley(
     female_thresholds : (F,) float array
         Each female's personal acceptance floor.  She will auto-reject any
         proposer whose score is below this value.
+    rng : np.random.Generator
+        The single simulation generator, used for the tie-breaking noise
+        (assumption 3).  Threaded explicitly so the matching is reproducible
+        from the run seed.
 
     Returns
     -------
@@ -353,7 +359,7 @@ def _gale_shapley(
         return []
 
     NOISE_SIGMA = 0.005  # see assumption 3
-    noisy = score_matrix + np.random.normal(0, NOISE_SIGMA, score_matrix.shape)
+    noisy = score_matrix + rng.normal(0, NOISE_SIGMA, score_matrix.shape)
 
     # Build each male's ordered preference list (assumptions 2 and 3).
     # male_prefs[i] is sorted from most-preferred (index 0) to least-preferred.

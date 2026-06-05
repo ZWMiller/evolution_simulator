@@ -223,31 +223,31 @@ class TestNeighborManagement:
         h1, h2 = habitat_pair
         assert not h1.can_migrate_to(h2)  # not registered as neighbor
 
-    def test_spontaneous_isolation_blocks_route(self, habitat_pair):
+    def test_spontaneous_isolation_blocks_route(self, habitat_pair, rng):
         h1, h2 = habitat_pair
         h1.add_neighbor(h2, passable=True)
         # probability=1.0 guarantees isolation
-        isolated = h1.try_spontaneous_isolation(probability=1.0)
+        isolated = h1.try_spontaneous_isolation(rng, probability=1.0)
         assert h2.habitat_id in isolated
         assert not h1.can_migrate_to(h2)
 
-    def test_spontaneous_isolation_returns_ids(self, habitat_pair):
+    def test_spontaneous_isolation_returns_ids(self, habitat_pair, rng):
         h1, h2 = habitat_pair
         h1.add_neighbor(h2)
-        isolated = h1.try_spontaneous_isolation(probability=1.0)
+        isolated = h1.try_spontaneous_isolation(rng, probability=1.0)
         assert isolated == [h2.habitat_id]
 
-    def test_spontaneous_isolation_zero_probability(self, habitat_pair):
+    def test_spontaneous_isolation_zero_probability(self, habitat_pair, rng):
         h1, h2 = habitat_pair
         h1.add_neighbor(h2)
-        isolated = h1.try_spontaneous_isolation(probability=0.0)
+        isolated = h1.try_spontaneous_isolation(rng, probability=0.0)
         assert isolated == []
         assert h1.can_migrate_to(h2)
 
-    def test_already_blocked_not_re_isolated(self, habitat_pair):
+    def test_already_blocked_not_re_isolated(self, habitat_pair, rng):
         h1, h2 = habitat_pair
         h1.add_neighbor(h2, passable=False)
-        isolated = h1.try_spontaneous_isolation(probability=1.0)
+        isolated = h1.try_spontaneous_isolation(rng, probability=1.0)
         assert isolated == []  # already impassable, nothing new
 
 
@@ -327,8 +327,8 @@ class TestResourceLikelihoods:
 
 
 class TestSimulateDayStructure:
-    def test_returns_expected_keys(self, populated_habitat):
-        result = populated_habitat.simulate_week()
+    def test_returns_expected_keys(self, populated_habitat, rng):
+        result = populated_habitat.simulate_week(rng)
         assert {
             "habitat_id",
             "population",
@@ -339,66 +339,66 @@ class TestSimulateDayStructure:
             "isolations",
         } <= result.keys()
 
-    def test_habitat_id_in_result(self, populated_habitat):
-        result = populated_habitat.simulate_week()
+    def test_habitat_id_in_result(self, populated_habitat, rng):
+        result = populated_habitat.simulate_week(rng)
         assert result["habitat_id"] == populated_habitat.habitat_id
 
-    def test_week_results_keyed_by_creature_id(self, populated_habitat):
-        result = populated_habitat.simulate_week()
+    def test_week_results_keyed_by_creature_id(self, populated_habitat, rng):
+        result = populated_habitat.simulate_week(rng)
         for cid in result["week_results"]:
             assert isinstance(cid, str)
 
-    def test_empty_habitat_runs_without_error(self, habitat):
-        result = habitat.simulate_week()
+    def test_empty_habitat_runs_without_error(self, habitat, rng):
+        result = habitat.simulate_week(rng)
         assert result["population"] == 0
         assert result["births"] == []
         assert result["deaths"] == []
         assert result["migrations"] == []
 
-    def test_population_count_in_result(self, populated_habitat):
-        result = populated_habitat.simulate_week()
+    def test_population_count_in_result(self, populated_habitat, rng):
+        result = populated_habitat.simulate_week(rng)
         assert result["population"] == populated_habitat.population_size
 
 
 class TestSimulateDayAging:
-    def test_creatures_age_each_day(self, habitat):
+    def test_creatures_age_each_day(self, habitat, rng):
         c = make_creature(seed=1, sex="male")
         habitat.add_creature(c)
         age_before = c.age
-        habitat.simulate_week()
+        habitat.simulate_week(rng)
         assert c.age == age_before + 1
 
-    def test_old_creature_dies(self, habitat):
+    def test_old_creature_dies(self, habitat, rng):
         c = make_creature(seed=2, sex="female")
         c.age = c.max_lifespan - 1
         habitat.add_creature(c)
-        result = habitat.simulate_week()
+        result = habitat.simulate_week(rng)
         assert c.creature_id in result["deaths"]
         assert not habitat.has_creature(c)
 
-    def test_dead_creatures_removed_from_habitat(self, habitat):
+    def test_dead_creatures_removed_from_habitat(self, habitat, rng):
         c = make_creature(seed=3, sex="male")
         c.age = c.max_lifespan - 1
         habitat.add_creature(c)
-        habitat.simulate_week()
+        habitat.simulate_week(rng)
         assert not habitat.has_creature(c)
 
 
 class TestSimulateDayResources:
-    def test_starvation_kills_creature(self, habitat):
+    def test_starvation_kills_creature(self, habitat, rng):
         c = make_creature(seed=4, sex="male")
         c.energy = 0.0
         # Force no food found: anti-align genes with habitat → (cos θ + 1)/2 = 0
         indices = habitat.FOOD_GENE_INDICES
         c.genes[indices] = -habitat.vector[indices]
         habitat.add_creature(c)
-        result = habitat.simulate_week()
+        result = habitat.simulate_week(rng)
         # May die of starvation if food prob = 0 and energy drains to ≤ 0
         # We verify the mechanism works by checking energy ≤ 0 kills the creature
         # (energy was already 0, so any FOOD_ENERGY_COST push kills it)
         assert c.creature_id in result["deaths"] or c.energy <= 0 or not c.is_alive
 
-    def test_energy_increases_when_food_found(self, habitat):
+    def test_energy_increases_when_food_found(self, habitat, rng):
         """Force food found by aligning genes with habitat → (cos θ + 1)/2 = 1."""
         indices = habitat.FOOD_GENE_INDICES
 
@@ -408,14 +408,14 @@ class TestSimulateDayResources:
         habitat.add_creature(c)
 
         np.random.seed(0)
-        habitat.simulate_week()
+        habitat.simulate_week(rng)
         # With p=1 food likelihood, food is always found
         # Energy should have increased (or stayed near 0.5 + gain)
         assert c.energy >= 0.5 or not c.is_alive  # creature either ate or died of age
 
 
 class TestSimulateDayMigration:
-    def test_migration_moves_creature_to_neighbor(self):
+    def test_migration_moves_creature_to_neighbor(self, rng):
         rng = np.random.default_rng(11)
         h1 = Habitat(vector=rng.standard_normal(HABITAT_VECTOR_DIMS))
         h2 = Habitat(vector=rng.standard_normal(HABITAT_VECTOR_DIMS))
@@ -430,7 +430,7 @@ class TestSimulateDayMigration:
         original = Habitat.WEEKLY_MIGRATION_BASE
         Habitat.WEEKLY_MIGRATION_BASE = 1.0
         try:
-            result = h1.simulate_week()
+            result = h1.simulate_week(rng)
         finally:
             Habitat.WEEKLY_MIGRATION_BASE = original
 
@@ -441,7 +441,7 @@ class TestSimulateDayMigration:
         assert destination is h2
         assert not h1.has_creature(c)  # removed from source
 
-    def test_no_migration_without_passable_neighbor(self, habitat):
+    def test_no_migration_without_passable_neighbor(self, habitat, rng):
         c = make_creature(seed=7, sex="male")
         c.genes[DEFAULT_TRAIT_GENE_INDICES["migration_likelihood"]] = 100.0
         habitat.add_creature(c)
@@ -449,14 +449,14 @@ class TestSimulateDayMigration:
         original = Habitat.WEEKLY_MIGRATION_BASE
         Habitat.WEEKLY_MIGRATION_BASE = 1.0
         try:
-            result = habitat.simulate_week()
+            result = habitat.simulate_week(rng)
         finally:
             Habitat.WEEKLY_MIGRATION_BASE = original
 
         assert result["migrations"] == []
         assert habitat.has_creature(c)
 
-    def test_blocked_route_prevents_migration(self, habitat_pair):
+    def test_blocked_route_prevents_migration(self, habitat_pair, rng):
         h1, h2 = habitat_pair
         h1.add_neighbor(h2)
         h1.block_migration_to(h2)
@@ -468,7 +468,7 @@ class TestSimulateDayMigration:
         original = Habitat.WEEKLY_MIGRATION_BASE
         Habitat.WEEKLY_MIGRATION_BASE = 1.0
         try:
-            result = h1.simulate_week()
+            result = h1.simulate_week(rng)
         finally:
             Habitat.WEEKLY_MIGRATION_BASE = original
 
@@ -476,17 +476,17 @@ class TestSimulateDayMigration:
 
 
 class TestSimulateDayMating:
-    def test_mating_creates_pregnancy(self):
+    def test_mating_creates_pregnancy(self, rng):
         h = Habitat()
         male, female = make_compatible_pair(base_seed=99)
         h.add_creature(male)
         h.add_creature(female)
 
-        h.simulate_week()
+        h.simulate_week(rng)
         # After one day, compatible male and female should have mated
         assert female.is_pregnant or female._pending_offspring
 
-    def test_births_appear_after_gestation(self):
+    def test_births_appear_after_gestation(self, rng):
         """Fast-forward a female through gestation and confirm birth event."""
         h = Habitat()
         male, female = make_compatible_pair(base_seed=42)
@@ -495,13 +495,13 @@ class TestSimulateDayMating:
         h.add_creature(female)
 
         # Mate them (modifying genes after pair creation would break compat check)
-        litter = male.reproduce(female)
+        litter = male.reproduce(female, rng)
         assert len(litter) >= 1
 
         # Fast-forward pregnancy to one day before term
         female.weeks_pregnant = female.reproduction_time - 1
 
-        result = h.simulate_week()
+        result = h.simulate_week(rng)
         assert len(result["births"]) >= 1
         for child in result["births"]:
             assert h.has_creature(child)
@@ -513,13 +513,13 @@ class TestSimulateDayMating:
 
 
 class TestPredation:
-    def test_predation_deaths_key_in_result(self, habitat):
+    def test_predation_deaths_key_in_result(self, habitat, rng):
         c = make_creature(seed=10, sex="male")
         habitat.add_creature(c)
-        result = habitat.simulate_week()
+        result = habitat.simulate_week(rng)
         assert "predation_deaths" in result
 
-    def test_high_density_causes_predation(self):
+    def test_high_density_causes_predation(self, rng):
         """Pack population far above support capacity — expect predation deaths."""
         rng = np.random.default_rng(0)
         hab = Habitat(vector=rng.standard_normal(HABITAT_VECTOR_DIMS))
@@ -532,10 +532,10 @@ class TestPredation:
         c.genes[DEFAULT_FOOD_GENE_INDICES] = hab.vector[DEFAULT_FOOD_GENE_INDICES]
         c.genes[DEFAULT_WATER_GENE_INDICES] = hab.vector[DEFAULT_WATER_GENE_INDICES]
         hab.add_creature(c)
-        result = hab.simulate_week()
+        result = hab.simulate_week(rng)
         assert len(result["predation_deaths"]) >= 1
 
-    def test_zero_density_no_predation_pressure(self):
+    def test_zero_density_no_predation_pressure(self, rng):
         """Single creature in a zero-alpha habitat has only genetic base rate."""
         rng = np.random.default_rng(1)
         hab = Habitat(vector=rng.standard_normal(HABITAT_VECTOR_DIMS))
@@ -547,7 +547,7 @@ class TestPredation:
         c.energy = 1.0
         c.hydration = 1.0
         hab.add_creature(c)
-        result = hab.simulate_week()
+        result = hab.simulate_week(rng)
         assert result["predation_deaths"] == []
 
 
@@ -675,7 +675,7 @@ class TestRepr:
 
 
 class TestHybridizationLogging:
-    def _run_mating(self, male, female):
+    def _run_mating(self, male, female, rng):
         """Place a pair in a habitat, run one week, return mating events."""
         h = Habitat()
         male.energy = 1.0
@@ -684,40 +684,40 @@ class TestHybridizationLogging:
         female.hydration = 1.0
         h.add_creature(male)
         h.add_creature(female)
-        return h.simulate_week()["mating_events"]
+        return h.simulate_week(rng)["mating_events"]
 
-    def test_same_species_fertilized_has_no_hybridization_key(self):
+    def test_same_species_fertilized_has_no_hybridization_key(self, rng):
         male, female = make_compatible_pair(base_seed=10)
         male.species = "Alpha"
         female.species = "Alpha"
-        events = self._run_mating(male, female)
+        events = self._run_mating(male, female, rng)
         fertilized = [ev for ev in events if ev["fertilized"]]
         assert len(fertilized) >= 1
         for ev in fertilized:
             assert "hybridization" not in ev
 
-    def test_cross_species_fertilized_has_hybridization_key(self):
+    def test_cross_species_fertilized_has_hybridization_key(self, rng):
         male, female = make_compatible_pair(base_seed=11)
         male.species = "Alpha"
         female.species = "Beta"
-        events = self._run_mating(male, female)
+        events = self._run_mating(male, female, rng)
         fertilized = [ev for ev in events if ev["fertilized"]]
         assert len(fertilized) >= 1
         hybrids = [ev for ev in fertilized if "hybridization" in ev]
         assert len(hybrids) >= 1
 
-    def test_hybridization_records_correct_species_names(self):
+    def test_hybridization_records_correct_species_names(self, rng):
         male, female = make_compatible_pair(base_seed=12)
         male.species = "Crimson Elk"
         female.species = "Pale Rabbit"
-        events = self._run_mating(male, female)
+        events = self._run_mating(male, female, rng)
         hybrids = [ev for ev in events if ev.get("hybridization")]
         assert len(hybrids) >= 1
         hyb = hybrids[0]["hybridization"]
         assert hyb["male_species"] == "Crimson Elk"
         assert hyb["female_species"] == "Pale Rabbit"
 
-    def test_failed_mating_has_no_hybridization_key(self):
+    def test_failed_mating_has_no_hybridization_key(self, rng):
         """Incompatible cross-species pair: compatible=False → no hybridization key."""
         rng = np.random.default_rng(77)
         base = rng.standard_normal(GENE_DIMS)
@@ -735,6 +735,6 @@ class TestHybridizationLogging:
         female.age = female.weeks_to_sexual_viability
         female.species = "Beta"
 
-        events = self._run_mating(male, female)
+        events = self._run_mating(male, female, rng)
         for ev in events:
             assert "hybridization" not in ev

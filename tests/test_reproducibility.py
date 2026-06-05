@@ -137,6 +137,33 @@ def test_different_seed_produces_different_logs(tmp_path):
     assert logs_a != logs_b, "different seeds unexpectedly produced identical logs"
 
 
+def test_no_global_np_random_in_hot_path(tmp_path, monkeypatch):
+    """The stepping hot path must never touch the global np.random singleton.
+
+    Every stochastic call (resource finding, predation, migration, mating,
+    reproduction, isolation, species naming) draws from one explicit numpy
+    Generator threaded from SimulationRunner.  Here we replace each global draw
+    function with one that raises; a clean full run proves the simulation reads
+    only the threaded Generator.  This guards against a future call site
+    silently reintroducing a global draw (which would be invisible to the
+    same-seed comparison until it happened to diverge).
+    """
+    import numpy as np
+
+    def _forbidden(*args, **kwargs):
+        raise AssertionError("simulation logic touched the global np.random singleton")
+
+    # The legacy global singleton functions.  Generator methods (e.g.
+    # gen.standard_normal) are bound to the threaded instance and are unaffected
+    # by patching these module-level names, so threaded draws still work.
+    for name in ("random", "randint", "shuffle", "choice", "normal", "poisson", "randn", "standard_normal"):
+        monkeypatch.setattr(np.random, name, _forbidden)
+
+    # A full run that exercises mating, reproduction, migration, predation,
+    # isolation, and species naming without raising.
+    _run(tmp_path, "no_global", weeks=20, seed=42, mating_strategy="weighted_matrix")
+
+
 def test_deterministic_creature_ids(tmp_path):
     """Creature IDs are the deterministic counter, identical across same-seed runs."""
     dir_a = _run(tmp_path, "id_a", weeks=20, seed=99)

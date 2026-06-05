@@ -63,14 +63,13 @@ def with_new_noncompat(base: np.ndarray, seed: int) -> np.ndarray:
 
 
 @pytest.fixture
-def registry():
-    return SpeciesRegistry()
+def registry(rng):
+    return SpeciesRegistry(rng)
 
 
 @pytest.fixture
-def registry_with_founder():
-    rng = np.random.default_rng(1)
-    reg = SpeciesRegistry()
+def registry_with_founder(rng):
+    reg = SpeciesRegistry(rng)
     genes = rng.standard_normal(GENE_DIMS)
     name = reg.register_founding_species(genes, name="Primal Wanderer")
     return reg, genes, name
@@ -106,8 +105,8 @@ class TestRegistryInit:
         assert registry.all_species == []
         assert registry.speciation_events == []
 
-    def test_custom_threshold(self):
-        reg = SpeciesRegistry(compatibility_threshold=0.99)
+    def test_custom_threshold(self, rng):
+        reg = SpeciesRegistry(rng, compatibility_threshold=0.99)
         assert reg.compatibility_threshold == 0.99
 
     def test_founder_seeds_living_centroid(self, registry_with_founder):
@@ -212,9 +211,9 @@ class TestAssignSpeciesNew:
         assert returned_name == founder_name
         assert diverged.species == founder_name
 
-    def test_no_registry_entries_triggers_immediate_species(self):
+    def test_no_registry_entries_triggers_immediate_species(self, rng):
         """Bootstrap case: first-ever creature gets a confirmed species immediately."""
-        reg = SpeciesRegistry()
+        reg = SpeciesRegistry(rng)
         c = make_creature(far_genes(seed=1), parent_species="unknown")
         name = reg.assign_species(c)
         assert reg.species_count == 1
@@ -422,7 +421,7 @@ class TestCandidatePromotion:
 
 
 class TestDriftBack:
-    def test_drift_back_to_ancestor_not_new_species(self):
+    def test_drift_back_to_ancestor_not_new_species(self, rng):
         """
         A creature carrying a diverged species label but with genes close to
         an ancestral progenitor should be re-absorbed into the ancestral
@@ -431,7 +430,7 @@ class TestDriftBack:
         logic directly without depending on two-stage promotion.
         """
         rng = np.random.default_rng(7)
-        reg = SpeciesRegistry()
+        reg = SpeciesRegistry(rng)
 
         ancestor_genes = rng.standard_normal(GENE_DIMS)
         diverged_genes = rng.standard_normal(GENE_DIMS)
@@ -453,14 +452,14 @@ class TestDriftBack:
         assert len(reg._candidates) == 0
         assert len(reg.speciation_events) == 0
 
-    def test_convergent_lineages_share_species(self):
+    def test_convergent_lineages_share_species(self, rng):
         """
         Two independently evolving lineages that converge toward the same
         genetic region should both be assigned to the same confirmed species,
         not create two separate candidates.
         """
         rng = np.random.default_rng(11)
-        reg = SpeciesRegistry()
+        reg = SpeciesRegistry(rng)
 
         base = rng.standard_normal(GENE_DIMS)
         target = rng.standard_normal(GENE_DIMS)
@@ -517,11 +516,11 @@ class TestSimilarityToAll:
 
 
 class TestCompatibilitySignal:
-    def test_divergence_outside_compat_subset_does_not_speciate(self):
+    def test_divergence_outside_compat_subset_does_not_speciate(self, rng):
         """A genome that differs from the founder ONLY outside the compatibility
         loci stays the same species — full-genome drift is no longer the signal."""
         rng = np.random.default_rng(3)
-        reg = SpeciesRegistry()
+        reg = SpeciesRegistry(rng)
         base = rng.standard_normal(GENE_DIMS)
         founder = reg.register_founding_species(base, name="Base Dweller")
 
@@ -533,11 +532,11 @@ class TestCompatibilitySignal:
         assert reg.species_count == 1
         assert len(reg._candidates) == 0
 
-    def test_divergence_in_compat_subset_assigns_to_nearest_species(self):
+    def test_divergence_in_compat_subset_assigns_to_nearest_species(self, rng):
         """A genome that differs in the compatibility loci is assigned to the nearest
         living species — population-level splits are detected by k-means, not per-newborn."""
         rng = np.random.default_rng(3)
-        reg = SpeciesRegistry()
+        reg = SpeciesRegistry(rng)
         base = rng.standard_normal(GENE_DIMS)
         founder = reg.register_founding_species(base, name="Base Dweller")
 
@@ -555,9 +554,9 @@ class TestCompatibilitySignal:
 
 
 class TestRefreshCentroids:
-    def test_centroid_is_member_compat_mean(self):
+    def test_centroid_is_member_compat_mean(self, rng):
         rng = np.random.default_rng(4)
-        reg = SpeciesRegistry()
+        reg = SpeciesRegistry(rng)
         base = rng.standard_normal(GENE_DIMS)
         name = reg.register_founding_species(base, name="Mean Seeker")
 
@@ -569,9 +568,9 @@ class TestRefreshCentroids:
         expected = np.mean([m.genes[COMPAT_IDX] for m in members], axis=0)
         np.testing.assert_allclose(reg.centroid(name), expected, rtol=1e-6)
 
-    def test_extinct_species_pruned_from_living_set(self):
+    def test_extinct_species_pruned_from_living_set(self, rng):
         rng = np.random.default_rng(4)
-        reg = SpeciesRegistry()
+        reg = SpeciesRegistry(rng)
         a = reg.register_founding_species(rng.standard_normal(GENE_DIMS), name="Alive One")
         b = reg.register_founding_species(rng.standard_normal(GENE_DIMS), name="Dead One")
 
@@ -584,11 +583,11 @@ class TestRefreshCentroids:
         assert reg.centroid(b) is None
         assert reg.centroid(a) is not None
 
-    def test_candidate_members_excluded_from_parent_centroid(self):
+    def test_candidate_members_excluded_from_parent_centroid(self, rng):
         """Incipiently-divergent candidate members must not drag the parent
         species' reproductive centre toward themselves."""
         rng = np.random.default_rng(8)
-        reg = SpeciesRegistry()
+        reg = SpeciesRegistry(rng)
         base = rng.standard_normal(GENE_DIMS)
         founder = reg.register_founding_species(base, name="Anchor Walker")
 
@@ -622,12 +621,12 @@ class TestRefreshCentroids:
 
 
 class TestDriftRegression:
-    def test_population_wide_drift_does_not_speciate(self):
+    def test_population_wide_drift_does_not_speciate(self, rng):
         """The core bug: with a frozen progenitor, a whole population drifting
         together eventually falls below threshold and speciates.  With a living
         centroid the reference moves with the population, so it does not."""
         rng = np.random.default_rng(12)
-        reg = SpeciesRegistry()
+        reg = SpeciesRegistry(rng)
         base = rng.standard_normal(GENE_DIMS)
         founder = reg.register_founding_species(base, name="Origin Drifter")
 
@@ -662,8 +661,8 @@ class TestDriftRegression:
 
 
 class TestUniqueNames:
-    def test_generated_names_are_unique(self):
-        reg = SpeciesRegistry()
+    def test_generated_names_are_unique(self, rng):
+        reg = SpeciesRegistry(rng)
         rng = np.random.default_rng(0)
         names = set()
         for _ in range(50):
@@ -671,8 +670,8 @@ class TestUniqueNames:
             names.add(name)
         assert len(names) == 50
 
-    def test_name_format(self):
-        reg = SpeciesRegistry()
+    def test_name_format(self, rng):
+        reg = SpeciesRegistry(rng)
         rng = np.random.default_rng(3)
         name = reg.register_founding_species(rng.standard_normal(GENE_DIMS))
         parts = name.split(" ")
@@ -721,7 +720,7 @@ class TestPhenotype:
         for i in range(4):
             np.testing.assert_allclose(mat[i], compute_phenotype(M[i]), rtol=1e-9)
 
-    def test_excludes_genetic_machinery_traits(self):
+    def test_excludes_genetic_machinery_traits(self, rng):
         for t in ("compatibility_genes", "sex_determination", "mutation_rate", "selectivity"):
             assert t not in PHENOTYPE_TRAITS
 
@@ -732,8 +731,8 @@ class TestPhenotype:
 
 
 class TestClustering:
-    def test_two_isolated_blobs_select_k2(self):
-        reg = SpeciesRegistry()
+    def test_two_isolated_blobs_select_k2(self, rng):
+        reg = SpeciesRegistry(rng)
         rng = np.random.default_rng(2)
         a = rng.standard_normal(245)
         b = rng.standard_normal(245)
@@ -746,8 +745,8 @@ class TestClustering:
         assert len(set(labels[6:].tolist())) == 1
         assert labels[0] != labels[6]
 
-    def test_single_blob_stays_k1(self):
-        reg = SpeciesRegistry()
+    def test_single_blob_stays_k1(self, rng):
+        reg = SpeciesRegistry(rng)
         rng = np.random.default_rng(3)
         a = rng.standard_normal(245)
         X = unit_rows(a + 0.01 * rng.standard_normal((10, 245)))
@@ -770,9 +769,9 @@ class TestSubclusterSplit:
         ]
         return near, far
 
-    def test_split_seeds_candidate_for_diverged_cluster(self):
+    def test_split_seeds_candidate_for_diverged_cluster(self, rng):
         rng = np.random.default_rng(5)
-        reg = SpeciesRegistry()
+        reg = SpeciesRegistry(rng)
         base = rng.standard_normal(GENE_DIMS)
         founder = reg.register_founding_species(base, name="Root")
         near, far = self._two_clusters(reg, base, founder)
@@ -785,9 +784,9 @@ class TestSubclusterSplit:
         assert cand["members"] <= {c.creature_id for c in far}
         assert cand["parent_species"] == founder
 
-    def test_split_promotes_and_relabels_via_existing_gate(self):
+    def test_split_promotes_and_relabels_via_existing_gate(self, rng):
         rng = np.random.default_rng(6)
-        reg = SpeciesRegistry()
+        reg = SpeciesRegistry(rng)
         base = rng.standard_normal(GENE_DIMS)
         founder = reg.register_founding_species(base, name="Root")
         near, far = self._two_clusters(reg, base, founder)
@@ -802,9 +801,9 @@ class TestSubclusterSplit:
         assert all(c.species != founder for c in far)
         assert all(c.species == founder for c in near)
 
-    def test_coherent_species_not_split(self):
+    def test_coherent_species_not_split(self, rng):
         rng = np.random.default_rng(7)
-        reg = SpeciesRegistry()
+        reg = SpeciesRegistry(rng)
         base = rng.standard_normal(GENE_DIMS)
         founder = reg.register_founding_species(base, name="Root")
         members = [make_creature(near_genes(base, 0.01, seed=i), parent_species=founder) for i in range(10)]
@@ -818,9 +817,9 @@ class TestSubclusterSplit:
 
 
 class TestAnagenesis:
-    def test_phenotype_drift_mints_descendant_and_respeciates(self):
+    def test_phenotype_drift_mints_descendant_and_respeciates(self, rng):
         rng = np.random.default_rng(8)
-        reg = SpeciesRegistry()
+        reg = SpeciesRegistry(rng)
         g0 = rng.standard_normal(GENE_DIMS)
         founder = reg.register_founding_species(g0, name="Ancestor")
 
@@ -845,9 +844,9 @@ class TestAnagenesis:
         # The whole lineage moved → all members carry the descendant name.
         assert all(m.species == events[0]["new_species"] for m in members)
 
-    def test_no_drift_no_event(self):
+    def test_no_drift_no_event(self, rng):
         rng = np.random.default_rng(9)
-        reg = SpeciesRegistry()
+        reg = SpeciesRegistry(rng)
         g0 = rng.standard_normal(GENE_DIMS)
         founder = reg.register_founding_species(g0, name="Ancestor")
         members = [make_creature(near_genes(g0, 0.001, seed=i), parent_species=founder) for i in range(6)]
@@ -860,9 +859,9 @@ class TestAnagenesis:
         assert events == []
         assert reg.species_count == 1
 
-    def test_species_with_active_split_candidate_is_skipped(self):
+    def test_species_with_active_split_candidate_is_skipped(self, rng):
         rng = np.random.default_rng(10)
-        reg = SpeciesRegistry()
+        reg = SpeciesRegistry(rng)
         g0 = rng.standard_normal(GENE_DIMS)
         founder = reg.register_founding_species(g0, name="Ancestor")
         members = [
@@ -882,9 +881,9 @@ class TestAnagenesis:
         events = reg.detect_anagenesis(members, current_week=20)
         assert events == []
 
-    def test_persistence_gate_delays_minting(self):
+    def test_persistence_gate_delays_minting(self, rng):
         rng = np.random.default_rng(11)
-        reg = SpeciesRegistry()
+        reg = SpeciesRegistry(rng)
         g0 = rng.standard_normal(GENE_DIMS)
         founder = reg.register_founding_species(g0, name="Ancestor")
         delta = rng.standard_normal(GENE_DIMS)
@@ -908,9 +907,9 @@ class TestAnagenesis:
         assert events[0]["event_type"] == "anagenesis"
         assert reg.species_count == 2
 
-    def test_rebound_resets_persistence_clock(self):
+    def test_rebound_resets_persistence_clock(self, rng):
         rng = np.random.default_rng(12)
-        reg = SpeciesRegistry()
+        reg = SpeciesRegistry(rng)
         g0 = rng.standard_normal(GENE_DIMS)
         founder = reg.register_founding_species(g0, name="Ancestor")
         drifted = [

@@ -496,14 +496,14 @@ class TestIsCompatible:
 
 
 class TestReproduce:
-    def test_compatible_pair_produces_litter(self, compatible_pair):
+    def test_compatible_pair_produces_litter(self, compatible_pair, rng):
         male, female = compatible_pair
-        litter = male.reproduce(female)
+        litter = male.reproduce(female, rng)
         assert isinstance(litter, list)
         assert len(litter) >= 1
         assert all(isinstance(c, Creature) for c in litter)
 
-    def test_incompatible_pair_returns_empty_list(self):
+    def test_incompatible_pair_returns_empty_list(self, rng):
         """Two random, unrelated creatures should not be able to reproduce."""
         rng = np.random.default_rng(77)
 
@@ -515,15 +515,15 @@ class TestReproduce:
         female.sex = "female"
         female.age = female.weeks_to_sexual_viability
 
-        assert male.reproduce(female) == []
+        assert male.reproduce(female, rng) == []
 
-    def test_child_genes_shape(self, compatible_pair):
+    def test_child_genes_shape(self, compatible_pair, rng):
         male, female = compatible_pair
-        litter = male.reproduce(female)
+        litter = male.reproduce(female, rng)
         for child in litter:
             assert child.genes.shape == (GENE_DIMS,)
 
-    def test_child_genes_drawn_from_parents(self, compatible_pair):
+    def test_child_genes_drawn_from_parents(self, compatible_pair, rng):
         """Every child gene locus must equal one of the two parents' values
         (before any mutation).  We verify this by zeroing mutation rate."""
         from evolution_simulator.genetics import DEFAULT_TRAIT_GENE_INDICES
@@ -536,7 +536,7 @@ class TestReproduce:
         female.genes[mut_idx] = -100.0
 
         np.random.seed(0)
-        litter = male.reproduce(female)
+        litter = male.reproduce(female, rng)
         assert len(litter) >= 1
         child = litter[0]
         for i in range(GENE_DIMS):
@@ -544,14 +544,14 @@ class TestReproduce:
                 f"Gene {i}: child={child.genes[i]}, male={male.genes[i]}, female={female.genes[i]}"
             )
 
-    def test_all_children_have_both_parents(self, compatible_pair):
+    def test_all_children_have_both_parents(self, compatible_pair, rng):
         male, female = compatible_pair
-        litter = male.reproduce(female)
+        litter = male.reproduce(female, rng)
         for child in litter:
             assert male in child.parents
             assert female in child.parents
 
-    def test_siblings_have_different_genes(self, compatible_pair):
+    def test_siblings_have_different_genes(self, compatible_pair, rng):
         """Each sibling gets an independent Mendelian draw — genomes must differ."""
         male, female = compatible_pair
         # Force high fecundity to guarantee multiple siblings
@@ -562,34 +562,34 @@ class TestReproduce:
         female.genes[fec_idx] = 10.0
         female.is_pregnant = False  # reset if already set
 
-        litter = male.reproduce(female)
+        litter = male.reproduce(female, rng)
         assert len(litter) >= 2
         # At least one pair of siblings must differ at some locus
         any_differ = any(not np.array_equal(litter[0].genes, litter[j].genes) for j in range(1, len(litter)))
         assert any_differ
 
-    def test_female_becomes_pregnant(self, compatible_pair):
+    def test_female_becomes_pregnant(self, compatible_pair, rng):
         male, female = compatible_pair
         assert not female.is_pregnant
-        male.reproduce(female)
+        male.reproduce(female, rng)
         assert female.is_pregnant
         assert female.weeks_pregnant == 0
 
-    def test_pending_offspring_stored_on_female(self, compatible_pair):
+    def test_pending_offspring_stored_on_female(self, compatible_pair, rng):
         male, female = compatible_pair
-        litter = male.reproduce(female)
+        litter = male.reproduce(female, rng)
         assert female._pending_offspring == litter
 
-    def test_litter_size_at_least_one(self, compatible_pair):
+    def test_litter_size_at_least_one(self, compatible_pair, rng):
         """Poisson draw is floored at 1 — no zero-offspring events."""
         for _ in range(20):
             male, female = compatible_pair
             female.is_pregnant = False
             female._pending_offspring = []
-            litter = male.reproduce(female)
+            litter = male.reproduce(female, rng)
             assert len(litter) >= 1
 
-    def test_mutation_can_alter_gene(self, compatible_pair):
+    def test_mutation_can_alter_gene(self, compatible_pair, rng):
         """With mutation rate forced high, child genes will differ from parents."""
         from evolution_simulator.genetics import DEFAULT_TRAIT_GENE_INDICES
 
@@ -599,7 +599,7 @@ class TestReproduce:
         female.genes[mut_idx] = 100.0
 
         np.random.seed(42)
-        litter = male.reproduce(female)
+        litter = male.reproduce(female, rng)
         assert len(litter) >= 1
         child = litter[0]
         # With ~5% mutation rate across 500 genes, ~25 loci should differ
@@ -611,15 +611,15 @@ class TestReproduce:
         assert 0.001 <= male.mutation_rate <= 0.05
         assert 0.001 <= female.mutation_rate <= 0.05
 
-    def test_reproduce_is_commutative(self, compatible_pair):
+    def test_reproduce_is_commutative(self, compatible_pair, rng):
         """female.reproduce(male) should work the same as male.reproduce(female)."""
         male, female = compatible_pair
         female.is_pregnant = False
         female._pending_offspring = []
-        litter = female.reproduce(male)
+        litter = female.reproduce(male, rng)
         assert len(litter) >= 1
 
-    def test_low_fertility_blocks_conception(self, compatible_pair):
+    def test_low_fertility_blocks_conception(self, compatible_pair, rng):
         """With reproduction_likelihood forced to zero, no offspring are produced."""
         from evolution_simulator.genetics import DEFAULT_TRAIT_GENE_INDICES
 
@@ -633,12 +633,12 @@ class TestReproduce:
         for _ in range(20):
             if female.is_pregnant:
                 break
-            male.reproduce(female)
+            male.reproduce(female, rng)
         # At least some attempts should have been blocked (empty litter)
         # (fertility ≈ sigmoid(-100) ≈ 0, so chance of any succeeding is ~0)
         assert not female.is_pregnant or True  # ensure no crash
 
-    def test_high_fertility_allows_conception(self, compatible_pair):
+    def test_high_fertility_allows_conception(self, compatible_pair, rng):
         """With reproduction_likelihood forced high, conception should succeed."""
         from evolution_simulator.genetics import DEFAULT_TRAIT_GENE_INDICES
 
@@ -648,7 +648,7 @@ class TestReproduce:
         female.genes[rl_idx] = 100.0
         female.is_pregnant = False
         female._pending_offspring = []
-        litter = male.reproduce(female)
+        litter = male.reproduce(female, rng)
         assert len(litter) >= 1
 
 
@@ -657,20 +657,20 @@ class TestSpeciesInheritance:
         c = Creature()
         assert c.species == "unknown"
 
-    def test_species_inherited_from_first_parent(self, compatible_pair):
+    def test_species_inherited_from_first_parent(self, compatible_pair, rng):
         male, female = compatible_pair
         male.species = "Crimson Hunter"
         female.species = "Azure Wanderer"
-        litter = male.reproduce(female)
+        litter = male.reproduce(female, rng)
         for child in litter:
             # First parent in parents list determines inherited species
             assert child.species == child.parents[0].species
 
-    def test_species_inherited_not_unknown_when_parents_known(self, compatible_pair):
+    def test_species_inherited_not_unknown_when_parents_known(self, compatible_pair, rng):
         male, female = compatible_pair
         male.species = "Primal Seeker"
         female.species = "Primal Seeker"
-        litter = male.reproduce(female)
+        litter = male.reproduce(female, rng)
         for child in litter:
             assert child.species == "Primal Seeker"
 

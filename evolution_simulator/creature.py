@@ -445,7 +445,7 @@ class Creature:
             return False, score, f"genetic_incompatibility (score={score:.4f} < threshold={threshold:.4f})"
         return True, score, ""
 
-    def reproduce(self, other: "Creature") -> list["Creature"]:
+    def reproduce(self, other: "Creature", rng: np.random.Generator) -> list["Creature"]:
         """
         Attempt to produce a litter with *other*.
 
@@ -455,6 +455,13 @@ class Creature:
         the two parents, and each locus is mutated at the rate of whichever
         parent contributed it — keeping both mutation rates under independent
         selection pressure.
+
+        Parameters
+        ----------
+        rng : np.random.Generator
+            The single simulation generator, threaded from SimulationRunner so
+            that all reproductive stochasticity comes from one explicit, seeded
+            stream (required — there is no global-RNG fallback in sim logic).
 
         Returns a (possibly empty) list of Creature objects.
           - Empty list  → compatibility check failed; no mating occurred.
@@ -474,23 +481,23 @@ class Creature:
         # Conception probability is the average of both parents' traits so
         # both are under selection pressure.
         fertility = (female.reproduction_likelihood + male.reproduction_likelihood) / 2
-        if np.random.random() > fertility:
+        if rng.random() > fertility:
             return []
 
         # Litter size: Poisson draw on female fecundity, min 1
-        n_offspring = max(1, int(np.random.poisson(female.fecundity)))
+        n_offspring = max(1, int(rng.poisson(female.fecundity)))
 
         litter: list[Creature] = []
         for _ in range(n_offspring):
             # Independent per-locus parent selection for each sibling
-            parent_choice = np.random.randint(0, 2, size=GENE_DIMS)
+            parent_choice = rng.integers(0, 2, size=GENE_DIMS)
             child_genes = np.where(parent_choice == 0, self.genes, other.genes)
 
             # Mutation: each locus uses its chosen parent's rate
             mut_rates = np.where(parent_choice == 0, self.mutation_rate, other.mutation_rate)
-            mutation_mask = np.random.random(GENE_DIMS) < mut_rates
+            mutation_mask = rng.random(GENE_DIMS) < mut_rates
             if mutation_mask.any():
-                child_genes[mutation_mask] = np.random.randn(int(mutation_mask.sum()))
+                child_genes[mutation_mask] = rng.standard_normal(int(mutation_mask.sum()))
 
             litter.append(Creature(genes=child_genes, parents=[self, other]))
 

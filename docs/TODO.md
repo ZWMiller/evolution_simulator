@@ -6,65 +6,6 @@ Cross-machine task tracking for active development items.
 
 ## Immediate / Next Session
 
-### Reproducibility Tier 3 — thread an explicit RNG, retire the global np.random
-
-**Context.** Tier 2 (done) made runs byte-identically reproducible from the same
-config+seed by fixing *ordering* (ordered population dict, deterministic counter
-IDs, sorted set iterations, derived habitat seeds). Guarded by
-`tests/test_reproducibility.py`. The remaining fragility is that all week-dynamics
-randomness still draws from the **global `np.random` singleton** (seeded once in
-`setup()`). That is invisible in signatures, so any future reordering or any new
-global draw can silently break determinism. Tier 3 removes the global dependence
-by threading one explicit `numpy.random.Generator` through the hot path. The
-module split already made the call sites clean enough to do this.
-
-**Design.**
-- `SimulationRunner` owns a single dynamics generator: `self.rng =
-  np.random.default_rng(seed)` (can reuse the existing founding `rng`, or keep a
-  second stream — decide once; a single stream is simplest). Pass it down each
-  week; habitats are iterated in the deterministic `self.habitats` dict order, so
-  a shared stream stays deterministic.
-- Thread path: `runner.step()` → `habitat.simulate_week(..., rng)` → habitat uses
-  `rng` for its own draws and forwards it to the mating functions and
-  `creature.reproduce(other, rng)`.
-- Species names: `SpeciesRegistry` currently uses stdlib `random.choice` (seeded
-  via global `random.seed`). Give the registry its own `random.Random(seed)`
-  instance instead of the global, for the same reason.
-
-**Call sites to convert (from the global-randomness sweep):**
-- `habitat.py`: resource draws (`_batch resource`, ~372–373), density death mask
-  (~426), migration probability + destination choice (~453–454), spontaneous
-  isolation (`try_spontaneous_isolation`, ~254). `simulate_week` gains an `rng`
-  parameter.
-- `mating.py`: all `np.random.shuffle` (zip/species_priority/weighted), the
-  `np.random.choice` in weighted sampling (~208), and the `np.random.normal`
-  tie-break noise inside `_gale_shapley` (~353). Each `_mate_*` and `_gale_shapley`
-  gains an `rng` parameter (they are already free functions taking explicit args).
-- `creature.py`: `reproduce()` draws — fertility check, `poisson(fecundity)`,
-  parent-choice `randint`, mutation mask, mutation values (~461–477). `reproduce`
-  (and `is_compatible`’s caller path) gains `rng`. The random-genes fallback in
-  `__init__` (only hit when `genes=None`, i.e. tests) can keep a module default or
-  accept an optional `rng`.
-- `habitat.__init__` random-vector fallback (only when `vector=None`; the runner
-  always passes a vector) — low priority, accept optional `rng` or leave.
-- `simulation.py`: drop the global `np.random.seed` / `random.seed` calls once
-  everything is threaded (keep seeding only what still reads a global, if any).
-- `species.py` k-means already takes an explicit `seed` (`_select_clusters(...,
-  seed=current_week)`) — no change needed.
-
-**Important risk — values will change.** The global singleton is legacy MT19937;
-`default_rng` is PCG64, so the *actual* random numbers change. Reproducibility is
-preserved (run-to-run identical) but any test asserting a specific stochastic
-outcome, and any comparison against pre-Tier-3 golden logs, will differ. Audit
-tests for hard-coded RNG-dependent expectations before/after. The
-`test_reproducibility.py` suite stays valid (it compares run-to-run, not to
-golden values) and is the primary guard.
-
-**Validation.** Full suite green; `test_reproducibility.py` still byte-identical;
-re-run the cross-process `PYTHONHASHSEED` check. Add an assertion that no
-`np.random.<global>` call remains in the simulation hot path (grep guard or a
-small test).
-
 ### Diagnose high speciation rate
 
 The 5-biome 50k wheel run (2026-06-02_19-15-21) shows 575 total species by week
@@ -515,7 +456,3 @@ Each creature currently has a single 500-dim gene vector. Diploid would mean two
 ### Chromosomes (linkage groups)
 
 Requires diploid first. Genes on the same chromosome are inherited as a block (linkage disequilibrium), which means beneficial alleles near a positively-selected locus hitchhike to fixation — and deleterious alleles near such a locus can accumulate (genetic hitchhiking / selective sweeps). Would let the model produce realistic patterns like selective sweeps, clonal interference, and Muller's ratchet. Implementation would mean assigning loci to named chromosomes and enforcing block inheritance during recombination.
-
----
-
-## Done

@@ -105,18 +105,18 @@ def _count_within_species_matings(mating_events: list[dict]) -> dict[str, int]:
 
 
 class TestZipStrategy:
-    def test_zip_produces_mating_events(self):
+    def test_zip_produces_mating_events(self, rng):
         hab, majority, minority = _build_two_species_habitat(n_majority=10, n_minority=10)
-        result = hab.simulate_week(mating_strategy="zip")
+        result = hab.simulate_week(rng, mating_strategy="zip")
         assert len(result["mating_events"]) > 0
 
-    def test_zip_minority_penalty(self):
+    def test_zip_minority_penalty(self, rng):
         """With zip, minority species loses most mating opportunities."""
         # Run many trials to get a stable estimate
         minority_fertilized_counts = []
         for seed in range(30):
             hab, majority, minority = _build_two_species_habitat(n_majority=40, n_minority=4, rng_seed=seed)
-            result = hab.simulate_week(mating_strategy="zip")
+            result = hab.simulate_week(rng, mating_strategy="zip")
             min_fertilized = sum(
                 1
                 for ev in result["mating_events"]
@@ -141,12 +141,12 @@ class TestZipStrategy:
 
 
 class TestSpeciesPriorityStrategy:
-    def test_species_priority_produces_mating_events(self):
+    def test_species_priority_produces_mating_events(self, rng):
         hab, majority, minority = _build_two_species_habitat()
-        result = hab.simulate_week(mating_strategy="species_priority")
+        result = hab.simulate_week(rng, mating_strategy="species_priority")
         assert len(result["mating_events"]) > 0
 
-    def test_minority_gets_within_species_pairings(self):
+    def test_minority_gets_within_species_pairings(self, rng):
         """
         Under species_priority, minority creatures with n_males == n_females should all
         be paired within-species first, not wasted on cross-species pairings.
@@ -155,7 +155,7 @@ class TestSpeciesPriorityStrategy:
         minority_pair_rates = []
         for seed in range(30):
             hab, majority, minority = _build_two_species_habitat(n_majority=40, n_minority=4, rng_seed=seed)
-            result = hab.simulate_week(mating_strategy="species_priority")
+            result = hab.simulate_week(rng, mating_strategy="species_priority")
             # Count mating events where both participants are minority
             minority_ids = {c.creature_id for c in minority}
             within_minority = [
@@ -169,7 +169,7 @@ class TestSpeciesPriorityStrategy:
         mean_pairs = np.mean(minority_pair_rates)
         assert mean_pairs >= 1.8, f"Expected ~2 within-species minority pairings, got mean {mean_pairs:.2f}"
 
-    def test_minority_gets_more_matings_than_zip(self):
+    def test_minority_gets_more_matings_than_zip(self, rng):
         """
         species_priority should produce more minority-species births than zip
         across many trials.
@@ -181,7 +181,7 @@ class TestSpeciesPriorityStrategy:
                 hab, majority, minority = _build_two_species_habitat(
                     n_majority=40, n_minority=4, rng_seed=seed
                 )
-                result = hab.simulate_week(mating_strategy=strategy)
+                result = hab.simulate_week(rng, mating_strategy=strategy)
                 minority_ids = {c.creature_id for c in minority}
                 births = sum(
                     1
@@ -199,7 +199,7 @@ class TestSpeciesPriorityStrategy:
             f"species_priority ({sp_mean:.2f}) should produce more minority births than zip ({zip_mean:.2f})"
         )
 
-    def test_hybridisation_still_occurs_in_spillover(self):
+    def test_hybridisation_still_occurs_in_spillover(self, rng):
         """
         When species have unequal sex ratios, surplus individuals enter the spillover
         pool where cross-species encounters can happen.
@@ -231,7 +231,7 @@ class TestSpeciesPriorityStrategy:
                 c = _make_creature(genes, "female", "minority")
                 hab.add_creature(c)
 
-            result = hab.simulate_week(mating_strategy="species_priority")
+            result = hab.simulate_week(rng, mating_strategy="species_priority")
             if any("hybridization" in ev for ev in result["mating_events"]):
                 break
 
@@ -259,7 +259,7 @@ class TestSpeciesPriorityStrategy:
             hab.add_creature(
                 _make_creature(min_base + rng.standard_normal(GENE_DIMS) * noise, "female", "minority")
             )
-        result = hab.simulate_week(mating_strategy="species_priority")
+        result = hab.simulate_week(rng, mating_strategy="species_priority")
         # With 4 surplus majority males and 4 surplus minority females, spillover pairings
         # should exist (they will appear in mating_events with cross-species participant ids)
         maj_ids = {c.creature_id for c in hab.alive_creatures if c.species == "majority"}
@@ -272,7 +272,7 @@ class TestSpeciesPriorityStrategy:
         ]
         assert len(cross_events) > 0, "Expected cross-species spillover pairings to be attempted"
 
-    def test_single_species_produces_mating_events(self):
+    def test_single_species_produces_mating_events(self, rng):
         """With only one species, species_priority still pairs individuals and produces events."""
         noise = 0.05
 
@@ -286,8 +286,8 @@ class TestSpeciesPriorityStrategy:
             hab_zip.add_creature(_make_creature(genes, sex, "only"))
             hab_sp.add_creature(_make_creature(genes.copy(), sex, "only"))
 
-        r_zip = hab_zip.simulate_week(mating_strategy="zip")
-        r_sp = hab_sp.simulate_week(mating_strategy="species_priority")
+        r_zip = hab_zip.simulate_week(rng, mating_strategy="zip")
+        r_sp = hab_sp.simulate_week(rng, mating_strategy="species_priority")
         assert len(r_zip["mating_events"]) > 0
         assert len(r_sp["mating_events"]) > 0
 
@@ -298,12 +298,12 @@ class TestSpeciesPriorityStrategy:
 
 
 class TestWeightedMatrixStrategy:
-    def test_weighted_matrix_produces_mating_events(self):
+    def test_weighted_matrix_produces_mating_events(self, rng):
         hab, majority, minority = _build_two_species_habitat()
-        result = hab.simulate_week(mating_strategy="weighted_matrix")
+        result = hab.simulate_week(rng, mating_strategy="weighted_matrix")
         assert len(result["mating_events"]) > 0
 
-    def test_minority_gets_within_species_pairings(self):
+    def test_minority_gets_within_species_pairings(self, rng):
         """
         weighted_matrix should pair minority creatures with same-species partners
         (high-selectivity default genes → high sharpness → picks highest-scoring male).
@@ -311,7 +311,7 @@ class TestWeightedMatrixStrategy:
         minority_pair_rates = []
         for seed in range(30):
             hab, majority, minority = _build_two_species_habitat(n_majority=40, n_minority=4, rng_seed=seed)
-            result = hab.simulate_week(mating_strategy="weighted_matrix")
+            result = hab.simulate_week(rng, mating_strategy="weighted_matrix")
             minority_ids = {c.creature_id for c in minority}
             within_minority = [
                 ev
@@ -325,7 +325,7 @@ class TestWeightedMatrixStrategy:
             f"Expected minority to mostly pair within-species, got mean {mean_pairs:.2f}"
         )
 
-    def test_minority_gets_more_matings_than_zip(self):
+    def test_minority_gets_more_matings_than_zip(self, rng):
         """weighted_matrix should protect the minority at least as well as species_priority."""
 
         def count_minority_births(strategy: str, n_trials: int = 50) -> float:
@@ -334,7 +334,7 @@ class TestWeightedMatrixStrategy:
                 hab, majority, minority = _build_two_species_habitat(
                     n_majority=40, n_minority=4, rng_seed=seed
                 )
-                result = hab.simulate_week(mating_strategy=strategy)
+                result = hab.simulate_week(rng, mating_strategy=strategy)
                 minority_ids = {c.creature_id for c in minority}
                 births = sum(
                     1
@@ -352,7 +352,7 @@ class TestWeightedMatrixStrategy:
             f"weighted_matrix ({wm_mean:.2f}) should protect minority better than zip ({zip_mean:.2f})"
         )
 
-    def test_low_selectivity_increases_hybridisation(self):
+    def test_low_selectivity_increases_hybridisation(self, rng):
         """
         Creatures with low selectivity should hybridise at a higher rate than
         those with high selectivity under weighted_matrix.
@@ -379,7 +379,7 @@ class TestWeightedMatrixStrategy:
                         c = _make_creature(genes, "female" if i % 2 == 0 else "male", sp)
                         hab.add_creature(c)
 
-                result = hab.simulate_week(mating_strategy="weighted_matrix")
+                result = hab.simulate_week(rng, mating_strategy="weighted_matrix")
                 for ev in result["mating_events"]:
                     if ev.get("fertilized"):
                         total += 1
@@ -395,10 +395,10 @@ class TestWeightedMatrixStrategy:
             f"low={low_sel_rate:.3f}, high={high_sel_rate:.3f}"
         )
 
-    def test_no_double_mating(self):
+    def test_no_double_mating(self, rng):
         """Each male should appear in at most one fertilized event."""
         hab, majority, minority = _build_two_species_habitat(n_majority=20, n_minority=20)
-        result = hab.simulate_week(mating_strategy="weighted_matrix")
+        result = hab.simulate_week(rng, mating_strategy="weighted_matrix")
         male_ids_in_events = [ev["male_id"] for ev in result["mating_events"]]
         assert len(male_ids_in_events) == len(set(male_ids_in_events)), (
             "A male appeared in more than one mating event (double-mating)"
@@ -415,9 +415,9 @@ class TestWeightedMatrixStrategy:
         assert mat.shape == (5, 7)
         assert mat.min() >= -1.0 and mat.max() <= 1.0
 
-    def test_empty_pools_return_no_events(self):
+    def test_empty_pools_return_no_events(self, rng):
         hab = Habitat()
-        result = hab.simulate_week(mating_strategy="weighted_matrix")
+        result = hab.simulate_week(rng, mating_strategy="weighted_matrix")
         assert result["mating_events"] == []
 
 
@@ -429,35 +429,35 @@ class TestWeightedMatrixStrategy:
 class TestStableMatchingStrategy:
     # --- Basic smoke tests ---------------------------------------------------
 
-    def test_produces_mating_events(self):
+    def test_produces_mating_events(self, rng):
         hab, majority, minority = _build_two_species_habitat()
-        result = hab.simulate_week(mating_strategy="stable_matching")
+        result = hab.simulate_week(rng, mating_strategy="stable_matching")
         assert len(result["mating_events"]) > 0
 
-    def test_empty_pools_return_no_events(self):
+    def test_empty_pools_return_no_events(self, rng):
         hab = Habitat()
-        result = hab.simulate_week(mating_strategy="stable_matching")
+        result = hab.simulate_week(rng, mating_strategy="stable_matching")
         assert result["mating_events"] == []
 
     # --- No-double-matching --------------------------------------------------
 
-    def test_no_male_appears_twice(self):
+    def test_no_male_appears_twice(self, rng):
         """Each male must appear in at most one event (Gale-Shapley produces a matching)."""
         hab, majority, minority = _build_two_species_habitat(n_majority=20, n_minority=20)
-        result = hab.simulate_week(mating_strategy="stable_matching")
+        result = hab.simulate_week(rng, mating_strategy="stable_matching")
         male_ids = [ev["male_id"] for ev in result["mating_events"]]
         assert len(male_ids) == len(set(male_ids)), "A male appeared in more than one mating event"
 
-    def test_no_female_appears_twice(self):
+    def test_no_female_appears_twice(self, rng):
         """Each female must appear in at most one event."""
         hab, majority, minority = _build_two_species_habitat(n_majority=20, n_minority=20)
-        result = hab.simulate_week(mating_strategy="stable_matching")
+        result = hab.simulate_week(rng, mating_strategy="stable_matching")
         female_ids = [ev["female_id"] for ev in result["mating_events"]]
         assert len(female_ids) == len(set(female_ids)), "A female appeared in more than one mating event"
 
     # --- Stability property --------------------------------------------------
 
-    def test_no_blocking_pairs(self):
+    def test_no_blocking_pairs(self, rng):
         """
         Verify the stability guarantee: no unmatched (male, female) pair exists
         where both would prefer each other over their current partners.
@@ -484,7 +484,7 @@ class TestStableMatchingStrategy:
 
         # Run the algorithm multiple times with different noise seeds
         for trial in range(10):
-            pairs = _gale_shapley(scores, male_thresholds, female_thresholds)
+            pairs = _gale_shapley(scores, male_thresholds, female_thresholds, rng)
             male_of = {p[0]: p[1] for p in pairs}  # male i → his female partner
             female_of = {p[1]: p[0] for p in pairs}  # female j → her male partner
 
@@ -516,7 +516,7 @@ class TestStableMatchingStrategy:
 
     # --- Minority protection -------------------------------------------------
 
-    def test_minority_gets_more_matings_than_zip(self):
+    def test_minority_gets_more_matings_than_zip(self, rng):
         """stable_matching should protect minority species at least as well as zip."""
 
         def count_minority_births(strategy: str, n_trials: int = 50) -> float:
@@ -525,7 +525,7 @@ class TestStableMatchingStrategy:
                 hab, majority, minority = _build_two_species_habitat(
                     n_majority=40, n_minority=4, rng_seed=seed
                 )
-                result = hab.simulate_week(mating_strategy=strategy)
+                result = hab.simulate_week(rng, mating_strategy=strategy)
                 minority_ids = {c.creature_id for c in minority}
                 births = sum(
                     1
@@ -545,22 +545,22 @@ class TestStableMatchingStrategy:
 
     # --- _gale_shapley unit tests --------------------------------------------
 
-    def test_gale_shapley_empty_inputs(self):
+    def test_gale_shapley_empty_inputs(self, rng):
         from evolution_simulator.mating import _gale_shapley
 
-        assert _gale_shapley(np.zeros((0, 5)), np.array([]), np.full(5, 0.7)) == []
-        assert _gale_shapley(np.zeros((5, 0)), np.full(5, 0.7), np.array([])) == []
+        assert _gale_shapley(np.zeros((0, 5)), np.array([]), np.full(5, 0.7), rng) == []
+        assert _gale_shapley(np.zeros((5, 0)), np.full(5, 0.7), np.array([]), rng) == []
 
-    def test_gale_shapley_all_below_threshold(self):
+    def test_gale_shapley_all_below_threshold(self, rng):
         """When no scores clear the threshold, nobody is matched."""
         from evolution_simulator.mating import _gale_shapley
 
         scores = np.full((4, 4), 0.5)  # all below 0.70
         thresholds = np.full(4, 0.70)
-        pairs = _gale_shapley(scores, thresholds, thresholds)
+        pairs = _gale_shapley(scores, thresholds, thresholds, rng)
         assert pairs == []
 
-    def test_gale_shapley_perfect_diagonal(self):
+    def test_gale_shapley_perfect_diagonal(self, rng):
         """
         When each male scores 0.99 with his same-index female and 0.71 with all
         others, the stable matching should be the diagonal pairing.
@@ -576,14 +576,14 @@ class TestStableMatchingStrategy:
         # Run many trials to verify robustness against noise
         for seed in range(20):
             np.random.seed(seed)
-            pairs = _gale_shapley(scores, thresholds, thresholds)
+            pairs = _gale_shapley(scores, thresholds, thresholds, rng)
             pair_dict = dict(pairs)
             for k in range(N):
                 assert pair_dict.get(k) == k, (
                     f"seed={seed}: male {k} matched to {pair_dict.get(k)}, expected {k}"
                 )
 
-    def test_gale_shapley_unequal_pool_sizes(self):
+    def test_gale_shapley_unequal_pool_sizes(self, rng):
         """With more males than females, some males go unmatched; no female is double-matched."""
         from evolution_simulator.mating import _gale_shapley
 
@@ -592,7 +592,7 @@ class TestStableMatchingStrategy:
         scores = rng.uniform(0.72, 0.99, (M, F))  # all above floor
         thresholds_m = np.full(M, 0.70)
         thresholds_f = np.full(F, 0.70)
-        pairs = _gale_shapley(scores, thresholds_m, thresholds_f)
+        pairs = _gale_shapley(scores, thresholds_m, thresholds_f, rng)
         # At most F pairs (one per female)
         assert len(pairs) <= F
         # No female matched twice
@@ -609,8 +609,8 @@ class TestStableMatchingStrategy:
 
 
 class TestUnknownStrategyFallback:
-    def test_unknown_strategy_falls_back_to_zip(self):
+    def test_unknown_strategy_falls_back_to_zip(self, rng):
         hab, majority, minority = _build_two_species_habitat(n_majority=10, n_minority=10)
-        result = hab.simulate_week(mating_strategy="nonexistent_strategy")
+        result = hab.simulate_week(rng, mating_strategy="nonexistent_strategy")
         # Should not raise; should produce mating events (zip behavior)
         assert isinstance(result["mating_events"], list)

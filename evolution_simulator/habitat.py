@@ -236,7 +236,7 @@ class Habitat:
         info = self._neighbors.get(other.habitat_id)
         return info is not None and info["passable"]
 
-    def try_spontaneous_isolation(self, probability: float = 0.001) -> list[str]:
+    def try_spontaneous_isolation(self, rng: np.random.Generator, probability: float = 0.001) -> list[str]:
         """
         Randomly sever open migration routes with the given per-link probability.
 
@@ -246,6 +246,8 @@ class Habitat:
 
         Parameters
         ----------
+        rng : np.random.Generator
+            The single simulation generator (threaded from SimulationRunner).
         probability : float
             Per-link chance of severance each time this is called (default 0.001).
 
@@ -256,7 +258,7 @@ class Habitat:
         """
         newly_isolated: list[str] = []
         for hid, info in self._neighbors.items():
-            if info["passable"] and np.random.random() < probability:
+            if info["passable"] and rng.random() < probability:
                 info["passable"] = False
                 newly_isolated.append(hid)
         return newly_isolated
@@ -324,12 +326,21 @@ class Habitat:
 
     def simulate_week(
         self,
+        rng: np.random.Generator,
         species_registry=None,
         isolation_probability: float = 0.001,
         mating_strategy: str = "zip",
     ) -> dict:
         """
         Advance the habitat by one week.
+
+        Parameters
+        ----------
+        rng : np.random.Generator
+            The single simulation generator, threaded from SimulationRunner so
+            every per-week stochastic draw (resource finding, predation,
+            migration, mating, reproduction, isolation) comes from one explicit
+            seeded stream.  Required — no global-RNG fallback exists in sim logic.
 
         Processing order
         ----------------
@@ -374,8 +385,8 @@ class Habitat:
         # ------------------------------------------------------------------
         food_probs = self.food_likelihoods(alive)
         water_probs = self.water_likelihoods(alive)
-        food_found = np.random.random(len(alive)) < food_probs
-        water_found = np.random.random(len(alive)) < water_probs
+        food_found = rng.random(len(alive)) < food_probs
+        water_found = rng.random(len(alive)) < water_probs
 
         week_results: dict = {}
         deaths: list[str] = []
@@ -428,7 +439,7 @@ class Habitat:
             n_alive = len(alive_after_resources)
             density_term = self.PREDATION_ALPHA * n_alive / self.POPULATION_SUPPORT
             base_rates = np.array([c.base_predation_rate for c in alive_after_resources])
-            death_mask = np.random.random(n_alive) < (base_rates + density_term)
+            death_mask = rng.random(n_alive) < (base_rates + density_term)
             for i in np.where(death_mask)[0]:
                 creature = alive_after_resources[i]
                 creature.is_alive = False
@@ -455,8 +466,8 @@ class Habitat:
                 if not creature.is_alive:
                     continue
                 weekly_prob = creature.migration_likelihood * weekly_migration_base
-                if np.random.random() < weekly_prob:
-                    destination = passable[np.random.randint(len(passable))]
+                if rng.random() < weekly_prob:
+                    destination = passable[rng.integers(len(passable))]
                     self._creatures.pop(creature.creature_id, None)
                     pending_migrations.append((creature, destination))
 
@@ -473,14 +484,14 @@ class Habitat:
         ]
 
         if mating_strategy == "species_priority":
-            mating_events = _mate_species_priority(viable_males, viable_females)
+            mating_events = _mate_species_priority(viable_males, viable_females, rng)
         elif mating_strategy == "weighted_matrix":
-            mating_events = _mate_weighted_matrix(viable_males, viable_females, self.MATING_SHARPNESS_K)
+            mating_events = _mate_weighted_matrix(viable_males, viable_females, self.MATING_SHARPNESS_K, rng)
         elif mating_strategy == "stable_matching":
-            mating_events = _mate_stable_matching(viable_males, viable_females)
+            mating_events = _mate_stable_matching(viable_males, viable_females, rng)
         else:
             # "zip" is the default / fallback for unknown strategy strings
-            mating_events = _mate_zip(viable_males, viable_females)
+            mating_events = _mate_zip(viable_males, viable_females, rng)
 
         # ------------------------------------------------------------------
         # 10. Add newborns to the population; check for speciation events
@@ -493,7 +504,7 @@ class Habitat:
         # ------------------------------------------------------------------
         # 11. Spontaneous isolation
         # ------------------------------------------------------------------
-        isolations = self.try_spontaneous_isolation(probability=isolation_probability)
+        isolations = self.try_spontaneous_isolation(rng, probability=isolation_probability)
 
         return {
             "habitat_id": self.habitat_id,

@@ -35,7 +35,6 @@ Each confirmed species keeps two genomes:
     the reproductive reference used for population-level split detection.
 """
 
-import random
 import tomllib
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -108,16 +107,19 @@ class SpeciesRegistry:
 
     Usage
     -----
-    1. Register founding individuals before the simulation begins:
+    1. Register founding individuals before the simulation begins.  The
+       registry shares the simulation's single explicit Generator (passed by
+       SimulationRunner) so its species-name draws stay on the same seeded
+       stream as the rest of the run:
 
-           registry = SpeciesRegistry()
+           registry = SpeciesRegistry(rng)
            name = registry.register_founding_species(founder.genes)
            founder.species = name
 
     2. At each birth, assign_species() is called automatically by
        Habitat.simulate_week() when a registry is passed:
 
-           result = habitat.simulate_week(species_registry=registry)
+           result = habitat.simulate_week(rng, species_registry=registry)
 
     3. Each week, after migrations are applied, refresh the living centroids
        (on the configured cadence) and promote any eligible candidates:
@@ -179,6 +181,7 @@ class SpeciesRegistry:
 
     def __init__(
         self,
+        rng: np.random.Generator,
         compatibility_threshold: float = DEFAULT_COMPATIBILITY_THRESHOLD,
         config_path: Path = DEFAULT_CONFIG_PATH,
         min_species_population: int = DEFAULT_MIN_SPECIES_POPULATION,
@@ -189,6 +192,11 @@ class SpeciesRegistry:
         anagenesis_threshold: float = DEFAULT_ANAGENESIS_THRESHOLD,
         anagenesis_weeks: int = DEFAULT_ANAGENESIS_WEEKS,
     ):
+        # The single simulation generator (threaded from SimulationRunner), used
+        # for drawing unique species names.  Sharing the same Generator object as
+        # the rest of the simulation keeps all stochasticity on one explicit,
+        # seeded stream — required, no global-RNG fallback.
+        self._rng: np.random.Generator = rng
         self.compatibility_threshold: float = compatibility_threshold
         self.min_species_population: int = min_species_population
         self.min_species_weeks: int = min_species_weeks
@@ -769,7 +777,9 @@ class SpeciesRegistry:
         """Draw a random adjective + noun pair not yet used."""
         max_attempts = len(self._adjectives) * len(self._nouns)
         for _ in range(max_attempts):
-            name = f"{random.choice(self._adjectives)} {random.choice(self._nouns)}"
+            adj = self._adjectives[self._rng.integers(len(self._adjectives))]
+            noun = self._nouns[self._rng.integers(len(self._nouns))]
+            name = f"{adj} {noun}"
             if name not in self._used_names:
                 self._used_names.add(name)
                 return name
