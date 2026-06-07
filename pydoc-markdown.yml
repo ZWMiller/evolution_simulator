@@ -1,0 +1,14 @@
+loaders:
+  - type: python
+    search_path: [.]
+
+processors:
+  - type: filter
+    documented_only: false
+    skip_empty_modules: true
+    exclude_private: true
+  - type: smart
+  - type: crossref
+
+renderer:
+  type: markdown

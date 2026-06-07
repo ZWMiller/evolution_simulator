@@ -32,7 +32,22 @@ import numpy as np
 
 
 def cos(a: np.ndarray, b: np.ndarray) -> float:
-    """Cosine similarity of two vectors in [-1, 1] (0 if either is ~zero)."""
+    """
+    Cosine similarity of two vectors.
+
+    Parameters
+    ----------
+    a : np.ndarray
+        First vector.
+    b : np.ndarray
+        Second vector; must be the same shape as *a*.
+
+    Returns
+    -------
+    float
+        Cosine similarity in [-1, 1].  Returns 0.0 if either vector has
+        near-zero norm (< 1e-12) to avoid division by zero.
+    """
     na = float(np.linalg.norm(a))
     nb = float(np.linalg.norm(b))
     if na < 1e-12 or nb < 1e-12:
@@ -42,12 +57,22 @@ def cos(a: np.ndarray, b: np.ndarray) -> float:
 
 def unit_rows(mat: np.ndarray) -> np.ndarray:
     """
-    Project each row onto the unit sphere (L2-normalize).
+    L2-normalise each row of *mat* onto the unit sphere.
 
-    This is the step that turns ordinary k-means into *spherical* k-means:
-    on unit vectors, the dot product X @ Cᵀ IS the cosine similarity, so all
-    downstream assignment and centroid maths operate in cosine geometry.
-    Zero-length rows are left unscaled to avoid division by zero.
+    This converts ordinary k-means into *spherical* k-means: on unit vectors,
+    ``X @ Cᵀ`` equals cosine similarity, so all downstream assignment and
+    centroid arithmetic operates in cosine geometry without explicit
+    normalisation.  Rows with near-zero norm (< 1e-12) are left unscaled.
+
+    Parameters
+    ----------
+    mat : np.ndarray, shape (N, D)
+        Matrix whose rows should be normalised.
+
+    Returns
+    -------
+    np.ndarray, shape (N, D)
+        Row-normalised copy of *mat*.
     """
     norms = np.linalg.norm(mat, axis=1, keepdims=True)
     norms = np.where(norms < 1e-12, 1.0, norms)
@@ -56,20 +81,32 @@ def unit_rows(mat: np.ndarray) -> np.ndarray:
 
 def kmeanspp_init(X: np.ndarray, k: int, rng: np.random.Generator) -> np.ndarray:
     """
-    Choose k initial centres with k-means++ (cosine variant).
+    Choose k initial cluster centres using the k-means++ cosine variant.
 
-    k-means++ spreads the seeds out so Lloyd's iterations are far less likely to
-    land in a poor local optimum than uniform-random seeding:
+    Spreads seeds so that Lloyd's iterations are far less likely to land in a
+    poor local optimum than uniform-random seeding:
 
-      1. Pick the first centre uniformly at random from the points.
-      2. For every point compute its cosine distance (1 - cosine) to the
-         NEAREST centre chosen so far.
-      3. Pick the next centre at random with probability proportional to that
-         distance — points far from all current centres are the most likely to
-         be chosen.
-      4. Repeat 2-3 until k centres are chosen.
+      1. Pick the first centre uniformly at random from the rows of *X*.
+      2. For every point, compute its cosine distance (1 − cosine) to the
+         nearest centre chosen so far.
+      3. Pick the next centre with probability proportional to that distance —
+         points far from all current centres are most likely to be chosen.
+      4. Repeat steps 2–3 until *k* centres are selected.
 
-    X is assumed to have unit rows, so ``X @ centresᵀ`` is cosine similarity.
+    Parameters
+    ----------
+    X : np.ndarray, shape (N, D)
+        Row-normalised data matrix (unit rows assumed; use ``unit_rows`` first).
+        ``X @ centresᵀ`` gives cosine similarity.
+    k : int
+        Number of cluster centres to select.
+    rng : np.random.Generator
+        Random generator for reproducible seeding.
+
+    Returns
+    -------
+    np.ndarray, shape (k, D)
+        The k selected initial centres (rows from *X*).
     """
     n = X.shape[0]
     centroids = [X[rng.integers(n)]]

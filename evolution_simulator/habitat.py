@@ -1,3 +1,35 @@
+"""
+Habitat model and weekly simulation loop for the evolution simulator.
+
+A ``Habitat`` is a geographic region represented by a 500-dimensional
+environment vector.  Creature fitness is determined entirely by how well each
+creature's gene sub-vector aligns with the habitat vector, via the
+``(cos θ + 1) / 2`` resource-geometry formula.
+
+Key public API
+--------------
+``Habitat(vector, name)``
+    Construct a habitat.  If *vector* is omitted it is drawn from N(0, 1).
+
+``habitat.simulate_week(rng, species_registry, mating_strategy) -> dict``
+    Advance all creatures by one week in a fixed processing order:
+    resource draws → energy/hydration update → aging → birth collection →
+    predation → remove dead → migration → mating → add newborns →
+    spontaneous isolation.  Returns a structured event dict.
+
+``habitat.food_likelihoods(creatures) -> ndarray``
+``habitat.water_likelihoods(creatures) -> ndarray``
+    Batched ``(cos θ + 1) / 2`` resource probabilities for a list of creatures.
+
+``habitat.add_neighbor(other) / block_migration_to / open_migration_to``
+    Manage the migration graph between habitats.
+
+``habitat.compute_stats() -> dict``
+    Per-species aggregate statistics for the current alive population.
+
+Concrete biome subclasses live in ``habitats/types.py``.
+"""
+
 import uuid
 from typing import TYPE_CHECKING
 
@@ -118,12 +150,20 @@ class Habitat:
         Parameters
         ----------
         vector : np.ndarray, optional
-            500-dimensional float array representing environmental conditions.
+            500-dimensional float array representing this habitat's
+            environmental conditions.  Gene sub-vectors are compared against
+            this via ``(cos θ + 1) / 2`` to produce resource probabilities.
             Randomly initialised from N(0, 1) if not provided.
         name : str, optional
-            Human-readable label (e.g. "Northern Savanna").
+            Human-readable label used in logs and visualisation (e.g.
+            ``"Northern Savanna"``).
         habitat_id : str, optional
             Explicit ID string.  Auto-generated UUID4 if not provided.
+        population_support : int, optional
+            Carrying capacity used in density-dependent mortality:
+            ``death_prob = PREDATION_ALPHA * N / population_support``.
+            Overrides the class-level ``POPULATION_SUPPORT`` for this
+            instance only.
         """
         if vector is not None:
             if np.asarray(vector).shape != (HABITAT_VECTOR_DIMS,):
@@ -177,6 +217,7 @@ class Habitat:
         self._creatures.pop(creature.creature_id, None)
 
     def has_creature(self, creature: "Creature") -> bool:
+        """True if *creature* is currently registered in this habitat."""
         return creature.creature_id in self._creatures
 
     # ------------------------------------------------------------------
@@ -195,10 +236,15 @@ class Habitat:
         Parameters
         ----------
         other : Habitat
-        bidirectional : bool
-            If True (default), also register self as a neighbour of other.
-        passable : bool
-            Whether creatures can currently migrate along this link.
+            The habitat to link to.  Must not already be registered as a
+            neighbour (re-adding silently overwrites the existing entry).
+        bidirectional : bool, optional
+            If ``True`` (default), also register ``self`` as a neighbour of
+            *other* so creatures can migrate in both directions.
+        passable : bool, optional
+            Initial passability of the link.  ``False`` registers the
+            connection in the topology without opening it to migration — useful
+            when building a graph that starts isolated.  Default ``True``.
         """
         self._neighbors[other.habitat_id] = {"habitat": other, "passable": passable}
         if bidirectional:
@@ -206,10 +252,19 @@ class Habitat:
 
     def block_migration_to(self, other: "Habitat", bidirectional: bool = False) -> None:
         """
-        Block migration between this habitat and *other*.
+        Block migration from this habitat to *other*.
 
-        Models a permanent geographic barrier (mountain range, river, etc.).
-        Pass bidirectional=True to close both directions simultaneously.
+        Models a permanent geographic barrier (mountain range, river, flood,
+        etc.) that cuts creatures off from the neighbouring habitat.  If
+        *other* is not a registered neighbour, this is a no-op.
+
+        Parameters
+        ----------
+        other : Habitat
+            The neighbouring habitat whose migration link should be closed.
+        bidirectional : bool, optional
+            If ``True``, also block migration from *other* back to ``self``.
+            Default ``False`` (one-directional block).
         """
         if other.habitat_id in self._neighbors:
             self._neighbors[other.habitat_id]["passable"] = False
@@ -217,7 +272,17 @@ class Habitat:
             other._neighbors[self.habitat_id]["passable"] = False
 
     def open_migration_to(self, other: "Habitat", bidirectional: bool = False) -> None:
-        """Re-open a previously blocked migration route."""
+        """
+        Re-open a previously blocked migration route to *other*.
+
+        Parameters
+        ----------
+        other : Habitat
+            The neighbouring habitat whose migration link should be re-opened.
+        bidirectional : bool, optional
+            If ``True``, also re-open migration from *other* back to ``self``.
+            Default ``False``.
+        """
         if other.habitat_id in self._neighbors:
             self._neighbors[other.habitat_id]["passable"] = True
         if bidirectional and self.habitat_id in other._neighbors:
@@ -273,18 +338,28 @@ class Habitat:
         habitat_vec: np.ndarray,  # shape (K,)
     ) -> np.ndarray:
         """
-        Compute the per-creature resource-finding probability for each creature.
+        Compute per-creature resource-finding probability via cosine geometry.
 
-        P = (cos θ + 1) / 2   ∈ [0, 1]
-
-        where θ is the angle between each creature's gene sub-vector and the
-        habitat sub-vector at the relevant loci.
+        ``P = (cos θ + 1) / 2 ∈ [0, 1]``, where θ is the angle between each
+        creature's gene sub-vector and the habitat sub-vector at the relevant
+        loci:
 
           cos θ = +1  (aligned)    → P = 1.0  — fully exploits this habitat
-          cos θ =  0  (orthogonal) → P = 0.5  — baseline pressure
+          cos θ =  0  (orthogonal) → P = 0.5  — unadapted baseline
           cos θ = −1  (opposed)    → P = 0.0  — cannot extract resources
 
-        Computed entirely via numpy for O(N·K) efficiency with no Python loop.
+        Parameters
+        ----------
+        gene_matrix : np.ndarray, shape (N, K)
+            Stacked gene sub-vectors for N creatures at K loci.
+        habitat_vec : np.ndarray, shape (K,)
+            The habitat's environment vector sliced to the same K loci.
+
+        Returns
+        -------
+        np.ndarray, shape (N,)
+            Per-creature probabilities in [0, 1].  Zero-norm vectors return
+            0.5 (orthogonal baseline).
         """
         dots: np.ndarray = gene_matrix @ habitat_vec  # (N,)
         creature_norms: np.ndarray = np.linalg.norm(gene_matrix, axis=1)  # (N,)
@@ -298,9 +373,19 @@ class Habitat:
 
     def food_likelihoods(self, creatures: list) -> np.ndarray:
         """
-        Per-creature weekly food-finding probability via (cos θ + 1) / 2.
+        Per-creature weekly food-finding probability via ``(cos θ + 1) / 2``.
 
-        Shape (N,), values in [0, 1].  Uses the FOOD_GENE_INDICES subspace.
+        Parameters
+        ----------
+        creatures : list[Creature]
+            The creatures to compute probabilities for.  An empty list returns
+            an empty array.
+
+        Returns
+        -------
+        np.ndarray, shape (N,)
+            Food-finding probability for each creature in [0, 1], computed
+            over the ``FOOD_GENE_INDICES`` subspace (158 loci by default).
         """
         if not creatures:
             return np.array([], dtype=float)
@@ -310,9 +395,19 @@ class Habitat:
 
     def water_likelihoods(self, creatures: list) -> np.ndarray:
         """
-        Per-creature weekly water-finding probability via (cos θ + 1) / 2.
+        Per-creature weekly water-finding probability via ``(cos θ + 1) / 2``.
 
-        Shape (N,), values in [0, 1].  Uses the WATER_GENE_INDICES subspace.
+        Parameters
+        ----------
+        creatures : list[Creature]
+            The creatures to compute probabilities for.  An empty list returns
+            an empty array.
+
+        Returns
+        -------
+        np.ndarray, shape (N,)
+            Water-finding probability for each creature in [0, 1], computed
+            over the ``WATER_GENE_INDICES`` subspace (175 loci by default).
         """
         if not creatures:
             return np.array([], dtype=float)
@@ -337,10 +432,21 @@ class Habitat:
         Parameters
         ----------
         rng : np.random.Generator
-            The single simulation generator, threaded from SimulationRunner so
-            every per-week stochastic draw (resource finding, predation,
-            migration, mating, reproduction, isolation) comes from one explicit
-            seeded stream.  Required — no global-RNG fallback exists in sim logic.
+            The single simulation generator threaded from ``SimulationRunner``.
+            Every stochastic draw (resource finding, predation, migration,
+            mating, reproduction, isolation) comes from this stream.  Required
+            — no global-RNG fallback exists in simulation logic.
+        species_registry : SpeciesRegistry, optional
+            If provided, ``assign_species()`` is called on every newborn so
+            they receive the correct species label before being added to the
+            population.  Pass ``None`` in tests that don't need speciation.
+        isolation_probability : float, optional
+            Per-link probability of a spontaneous migration-route severance
+            each week.  Default 0.001 (0.1 % per link per week).
+        mating_strategy : str, optional
+            Pairing algorithm for the mating step.  One of ``"zip"``
+            (default), ``"species_priority"``, ``"weighted_matrix"``, or
+            ``"stable_matching"``.  Unknown strings fall back to ``"zip"``.
 
         Processing order
         ----------------

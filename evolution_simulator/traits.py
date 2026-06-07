@@ -172,16 +172,28 @@ PHENOTYPE_TRAITS: tuple[str, ...] = (
 
 def _batch_compute_traits(creatures: list) -> np.ndarray:
     """
-    Vectorized OWA trait computation for all LOGGED_TRAITS across a list of creatures.
+    Vectorised OWA trait computation for all ``LOGGED_TRAITS`` across a population.
 
-    For each trait: fancy-index the relevant loci into an (N, k) block, run the
-    shared OWA kernel (sort descending, normalised decaying weights, sigmoid),
-    then apply the trait's (offset, scale) and floor-truncate int-valued traits
-    per creature before averaging, so mean(int(f(x))) is preserved rather than
-    the incorrect int(mean(f(x))).
+    For each trait: fancy-indexes the relevant loci into an (N, k) block, runs
+    the shared OWA kernel (sort descending, normalised decaying weights, sigmoid),
+    then applies the trait's ``(offset, scale)`` from ``_TRAIT_SCALING``.
+    Integer-valued traits (``reproduction_time``, ``weeks_to_sexual_viability``,
+    ``max_lifespan``) are floor-truncated per creature before the column is
+    stored, preserving ``mean(int(f(x)))`` rather than the incorrect
+    ``int(mean(f(x)))``.
 
-    Returns (N, len(LOGGED_TRAITS)) float64 array of scaled values.
-    Uses the first creature's class for TRAIT_GENE_INDICES and OWA_ALPHA.
+    Parameters
+    ----------
+    creatures : list[Creature]
+        The population to evaluate.  Must be non-empty.  The first creature's
+        class is used to resolve ``TRAIT_GENE_INDICES`` and ``OWA_ALPHA``, so
+        all creatures in the list must share the same class (or a consistent
+        subclass override).
+
+    Returns
+    -------
+    np.ndarray, shape (N, len(LOGGED_TRAITS))
+        Scaled trait values in biological units for each creature × trait.
     """
     N = len(creatures)
     cls = creatures[0].__class__
@@ -236,5 +248,23 @@ def compute_phenotype_matrix(
 
 
 def compute_phenotype(genes: np.ndarray, owa_alpha: float = DEFAULT_OWA_ALPHA) -> np.ndarray:
-    """Phenotype vector (raw [0,1] per PHENOTYPE_TRAITS) for a single genome."""
+    """
+    Phenotype vector for a single genome.
+
+    Convenience wrapper around ``compute_phenotype_matrix`` for the
+    single-genome case.
+
+    Parameters
+    ----------
+    genes : np.ndarray, shape (GENE_DIMS,)
+        Full 500-dimensional gene vector for one creature.
+    owa_alpha : float, optional
+        OWA decay rate; see ``owa_aggregate``.  Defaults to
+        ``DEFAULT_OWA_ALPHA``.
+
+    Returns
+    -------
+    np.ndarray, shape (len(PHENOTYPE_TRAITS),)
+        Raw sigmoid values in [0, 1] for each trait in ``PHENOTYPE_TRAITS``.
+    """
     return compute_phenotype_matrix(genes[np.newaxis, :], owa_alpha=owa_alpha)[0]

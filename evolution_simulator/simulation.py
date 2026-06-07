@@ -72,6 +72,14 @@ class SimulationRunner:
     """
 
     def __init__(self, config_path: Path):
+        """
+        Parameters
+        ----------
+        config_path : Path
+            Path to the TOML configuration file.  The config is parsed
+            immediately; call :meth:`setup` to build the world and
+            :meth:`run` (or :meth:`step` in a loop) to simulate.
+        """
         config_path = Path(config_path)
         with open(config_path, "rb") as fh:
             self.config: dict = tomllib.load(fh)
@@ -463,6 +471,22 @@ class SimulationRunner:
         include_stats: bool = True,
         include_events: bool = True,
     ) -> dict:
+        """
+        Assemble the week log dict from this week's simulation results.
+
+        The log has three layers with different cost/cadence trade-offs:
+          (A) Cheap global header — always present: week, timestamp,
+              global_population, global_species_count.
+          (B) Cheap per-habitat skeleton — always present: id/type/name,
+              population, species_distribution.
+          (C) Expensive statistics — only when include_stats: per-habitat and
+              per-species trait means, food/water probabilities, generation.
+          (D) Expensive event detail — only when include_events: per-creature
+              births, deaths, mating attempts, migrations, isolations,
+              speciation events.
+
+        The visualiser requires at minimum the (A) fields in every file.
+        """
         # ------------------------------------------------------------------
         # (A) Cheap global header — ALWAYS present (visualizer hard-requires
         #     week / global_population / global_species_count).
@@ -598,11 +622,13 @@ class SimulationRunner:
     # ------------------------------------------------------------------
 
     def _write_week_log(self, week_log: dict) -> None:
+        """Write *week_log* to ``week_NNNNN.json`` in the log directory."""
         path = self.log_dir / f"week_{self.week:05d}.json"
         with open(path, "w") as fh:
             json.dump(week_log, fh)
 
     def _write_metadata(self) -> None:
+        """Write ``metadata.json`` (habitat topology, seed, parameters) to the log directory."""
         sim_cfg = self.config["simulation"]
         metadata = {
             "simulation_start": datetime.now().isoformat(),
@@ -649,6 +675,20 @@ class SimulationRunner:
             json.dump(metadata, fh, indent=2)
 
     def _write_summary(self, extinct: bool = False) -> None:
+        """
+        Write ``summary.json`` to the log directory.
+
+        Includes final population, total species ever recorded, all speciation
+        and isolation events, and the ``"extinct"`` flag.  Called at the end of
+        ``run()``; ``runner.py`` also calls this directly from its own step loop.
+
+        Parameters
+        ----------
+        extinct : bool, optional
+            ``True`` if the simulation halted due to global extinction.
+            Written directly into the summary under the ``"extinct"`` key.
+            Default ``False``.
+        """
         summary = {
             "simulation_end": datetime.now().isoformat(),
             "weeks_simulated": self.week,

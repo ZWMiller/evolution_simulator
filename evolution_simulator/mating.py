@@ -27,11 +27,20 @@ from .genetics import DEFAULT_TRAIT_GENE_INDICES
 
 def _build_compatibility_matrix(males: list, females: list) -> np.ndarray:
     """
-    Vectorized pairwise cosine-similarity matrix on the compatibility_genes subset.
+    Vectorised pairwise cosine-similarity matrix on the compatibility_genes subset.
 
-    Returns an (M, F) float64 array with values in [-1, 1], where entry [i, j]
-    is the compatibility score between males[i] and females[j].  Shared by the
-    weighted-sampling and stable-matching mating strategies.
+    Parameters
+    ----------
+    males : list[Creature]
+        All viable male candidates.
+    females : list[Creature]
+        All viable female candidates.
+
+    Returns
+    -------
+    np.ndarray, shape (M, F)
+        Cosine similarity scores in [-1, 1], where entry ``[i, j]`` is the
+        compatibility score between ``males[i]`` and ``females[j]``.
     """
     indices = DEFAULT_TRAIT_GENE_INDICES["compatibility_genes"]
 
@@ -50,7 +59,28 @@ def _build_compatibility_matrix(males: list, females: list) -> np.ndarray:
 
 
 def _attempt_mating(male, female, rng: np.random.Generator) -> dict:
-    """Run one compatibility check + optional reproduce(); return the event dict."""
+    """
+    Run one compatibility check and, if successful, call ``reproduce()``.
+
+    Parameters
+    ----------
+    male : Creature
+        The male individual attempting to mate.
+    female : Creature
+        The female individual being approached.
+    rng : np.random.Generator
+        The simulation's single seeded generator, passed through to
+        ``Creature.reproduce()``.
+
+    Returns
+    -------
+    dict
+        Mating event record with keys: ``male_id``, ``female_id``,
+        ``compatibility_score``, ``compatible`` (bool), ``fertilized`` (bool),
+        ``litter_size``, ``offspring_ids``.  On failure, a ``reason`` key is
+        added.  On cross-species fertilisation, a ``hybridization`` sub-dict
+        is added with ``male_species`` and ``female_species``.
+    """
     compatible, score, reason = male.is_compatible(female)
     event: dict = {
         "male_id": male.creature_id,
@@ -81,12 +111,26 @@ def _attempt_mating(male, female, rng: np.random.Generator) -> dict:
 
 def _mate_zip(viable_males: list, viable_females: list, rng: np.random.Generator) -> list[dict]:
     """
-    Legacy zip-pairing strategy.
+    Legacy zip-pairing strategy (default for backwards compatibility).
 
-    Shuffles all viable males and females habitat-wide, then zips them into 1:1
-    pairs.  Any cross-species pairing that fails the compatibility check wastes
-    both individuals' mating opportunity for that week, which creates a severe
-    minority-species penalty (Allee effect).
+    Shuffles all viable males and females habitat-wide, then zips them into
+    1:1 pairs.  Any cross-species pairing that fails the compatibility check
+    wastes both individuals' mating opportunity for the week, creating a
+    severe minority-species Allee effect.
+
+    Parameters
+    ----------
+    viable_males : list[Creature]
+        Sexually viable, alive males in the habitat.
+    viable_females : list[Creature]
+        Sexually viable, alive, non-pregnant females in the habitat.
+    rng : np.random.Generator
+        The simulation's single seeded generator.
+
+    Returns
+    -------
+    list[dict]
+        One mating event dict per attempted pairing; see ``_attempt_mating``.
     """
     rng.shuffle(viable_males)
     rng.shuffle(viable_females)
@@ -101,14 +145,26 @@ def _mate_species_priority(viable_males: list, viable_females: list, rng: np.ran
     """
     Species-first priority pairing with cross-species spillover.
 
-    1. Group males and females by species.
-    2. Pair each species' own males and females first (shuffled within-species).
-    3. Collect all unpaired individuals into a shared spillover pool.
-    4. Zip-pair the spillover pool for cross-species hybridisation.
+    Groups males and females by species, pairs each species' own pool first
+    (shuffled within-species), then collects surplus/unmatched individuals
+    into a shared spillover pool for cross-species hybridisation.
 
     Eliminates the minority-species Allee effect: each species gets mating
     proportional to its own sex ratio, regardless of relative abundance.
-    Hybridisation is still possible for surplus/unmatched individuals.
+
+    Parameters
+    ----------
+    viable_males : list[Creature]
+        Sexually viable, alive males in the habitat.
+    viable_females : list[Creature]
+        Sexually viable, alive, non-pregnant females in the habitat.
+    rng : np.random.Generator
+        The simulation's single seeded generator.
+
+    Returns
+    -------
+    list[dict]
+        One mating event dict per attempted pairing; see ``_attempt_mating``.
     """
     from collections import defaultdict
 
@@ -160,19 +216,37 @@ def _mate_weighted_matrix(
     rng: np.random.Generator,
 ) -> list[dict]:
     """
-    Full pairwise score matrix with selectivity-weighted sampling.
+    Full pairwise score matrix with selectivity-weighted probabilistic sampling.
 
-    1. Build the M×F compatibility score matrix in one vectorized pass.
-    2. Iterate females in random order; each female samples a male using:
-         weight_j = max(0, score[j,f] − threshold_f) ^ sharpness
-       where threshold_f = COMPATIBILITY_FLOOR + 0.15 * female.selectivity
-       and sharpness = 1 + mating_sharpness_k * mean(male.selectivity, female.selectivity)
-    3. If no available male clears the female's threshold she goes unmated.
-    4. The sampled male is removed from the pool (no double-mating).
+    Builds the M×F compatibility score matrix in one vectorised pass, then
+    iterates females in random order.  Each female samples a male with
+    probability proportional to
+    ``max(0, score − threshold) ^ sharpness``, where
+    ``threshold = COMPATIBILITY_FLOOR + 0.15 * female.selectivity`` and
+    ``sharpness = 1 + mating_sharpness_k * mean(selectivity of the pair)``.
+    The chosen male is removed from the available pool (no double-mating).
 
-    Low selectivity → exponent ≈ 1 → nearly uniform above the floor → liberal
-    hybridisation.  High selectivity → exponent ≈ 4 → sharply peaked at the
-    highest-scoring available male → near-exclusive same-species mating.
+    Low selectivity → exponent ≈ 1 → nearly uniform above the floor →
+    liberal hybridisation.  High selectivity → sharply peaked at the best
+    available male → near-exclusive same-species mating.
+
+    Parameters
+    ----------
+    viable_males : list[Creature]
+        Sexually viable, alive males in the habitat.
+    viable_females : list[Creature]
+        Sexually viable, alive, non-pregnant females in the habitat.
+    mating_sharpness_k : float
+        Multiplier controlling how strongly selectivity sharpens the
+        preference distribution.  Typically ``Habitat.MATING_SHARPNESS_K``
+        (default 3.0), giving sharpness ∈ [1, 4].
+    rng : np.random.Generator
+        The simulation's single seeded generator.
+
+    Returns
+    -------
+    list[dict]
+        One mating event dict per attempted pairing; see ``_attempt_mating``.
     """
     if not viable_males or not viable_females:
         return []
@@ -224,19 +298,31 @@ def _mate_stable_matching(viable_males: list, viable_females: list, rng: np.rand
     """
     Mutual-preference stable matching via Gale-Shapley deferred acceptance.
 
-    Builds the full M×F compatibility score matrix, computes each creature's
-    personal acceptance threshold from its selectivity trait, runs the
-    _gale_shapley() function to find a stable set of pairs, then calls
-    _attempt_mating() on each pair.
+    Builds the full M×F compatibility score matrix, derives per-creature
+    acceptance thresholds from the selectivity trait, and calls
+    ``_gale_shapley()`` to find a stable set of pairs.  Every matched pair is
+    optimal for the male — no male would prefer an unmatched female who also
+    prefers him.  Hybridisation occurs only when a cross-species individual
+    genuinely ranks above all same-species alternatives for both parties.
 
-    See _gale_shapley() for the full algorithm description, assumptions, and
-    documented baked-in choices (male-proposing direction, bilateral threshold
-    pre-filtering, tie-breaking noise, threshold asymmetry vs is_compatible).
+    See ``_gale_shapley()`` for the full algorithm description and all
+    documented assumptions (proposing direction, bilateral pre-filtering,
+    tie-breaking noise, threshold asymmetry).
 
-    Unlike weighted_matrix, every matched pair is the best stable outcome for
-    the male — no male would prefer an unmatched female who also prefers him.
-    Hybridisation occurs only when a cross-species individual genuinely ranks
-    above all available same-species candidates for both parties.
+    Parameters
+    ----------
+    viable_males : list[Creature]
+        Sexually viable, alive males in the habitat.
+    viable_females : list[Creature]
+        Sexually viable, alive, non-pregnant females in the habitat.
+    rng : np.random.Generator
+        The simulation's single seeded generator, used for the
+        tie-breaking noise in Gale-Shapley and for ``_attempt_mating``.
+
+    Returns
+    -------
+    list[dict]
+        One mating event dict per matched pair; see ``_attempt_mating``.
     """
     if not viable_males or not viable_females:
         return []

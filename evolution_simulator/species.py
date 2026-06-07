@@ -280,14 +280,25 @@ class SpeciesRegistry:
         """
         Assign the species for a newborn creature.
 
-        1. No living centroids (empty/extinct registry): register a confirmed
-           species immediately (bootstrap).
-        2. Otherwise: assign to the nearest living species by centroid cosine
-           similarity, regardless of whether the score clears
-           compatibility_threshold.  Genuine reproductive isolation is detected
-           at the population level by detect_subcluster_splits(), not per-newborn.
+        Compares the newborn's compatibility sub-vector against every living
+        species centroid and assigns the nearest one, regardless of whether
+        the cosine score clears ``compatibility_threshold``.  Genuine
+        reproductive isolation is detected at the population level by
+        ``detect_subcluster_splits()``, not per-newborn.
 
-        Sets ``creature.species`` as a side effect and returns the name.
+        If the registry has no living centroids (empty or fully extinct),
+        the newborn's genome is immediately registered as a bootstrap species.
+
+        Parameters
+        ----------
+        creature : Creature
+            The newly born individual.  ``creature.species`` is updated as
+            a side effect.
+
+        Returns
+        -------
+        str
+            The species name assigned to *creature*.
         """
         compat = self._compat(creature.genes)
 
@@ -305,15 +316,21 @@ class SpeciesRegistry:
         """
         Recompute each species' living centroid from its current members.
 
-        Call periodically (every ``respeciate_every`` weeks) after migrations.
-        The centroid of a species is the mean compatibility sub-vector of its
-        living members, EXCLUDING creatures that currently belong to a pending
-        candidate — candidate members are incipiently divergent and must not
-        drag the parent species' reproductive centre toward themselves.
+        Call periodically (every ``respeciate_every`` weeks) after migrations
+        so migrated creatures are counted toward their new habitat's species
+        distribution.
 
-        Species with no qualifying living members are dropped from the
-        comparison set (you cannot breed with an extinct population); they
-        remain in the historical registry.
+        Candidate members are excluded from their parent species' centroid:
+        they are incipiently divergent and must not drag the parent's
+        reproductive reference toward themselves.  Species whose only living
+        members are candidates are dropped from the centroid comparison set
+        until non-candidate individuals remain; they stay in the historical
+        registry.
+
+        Parameters
+        ----------
+        alive_creatures : list[Creature]
+            All living creatures across all habitats.
         """
         candidate_member_ids: set[str] = set()
         for cand in self._candidates.values():
@@ -334,15 +351,24 @@ class SpeciesRegistry:
         Promote any candidates that meet both population and age criteria.
 
         Call once per simulation step, after all habitats have run and
-        migrations have been applied.
+        migrations have been applied.  Candidates whose members all died before
+        promotion are recorded in ``failed_speciation_attempts`` and removed.
 
         Parameters
         ----------
-        alive_creatures : list of all living Creature objects (all habitats)
-        current_week    : the current simulation week number
+        alive_creatures : list[Creature]
+            All living creatures across all habitats.
+        current_week : int
+            The current simulation week, used to compute how long each
+            candidate has existed (must exceed ``min_species_weeks`` for
+            promotion).
 
-        Returns the list of new speciation events created this call (also
-        appended to self.speciation_events).
+        Returns
+        -------
+        list[dict]
+            New speciation events created this call.  Each event dict has keys
+            ``new_species``, ``parent_species``, ``creature_id``, ``week``,
+            and ``event_type``.  Also appended to ``self.speciation_events``.
         """
         alive_ids = {c.creature_id for c in alive_creatures}
         creature_map = {c.creature_id: c for c in alive_creatures}
@@ -405,22 +431,32 @@ class SpeciesRegistry:
 
     def detect_subcluster_splits(self, alive_creatures: "list[Creature]", current_week: int) -> None:
         """
-        Detect reproductive-isolation splits WITHIN a species (cladogenesis).
+        Detect reproductive-isolation splits within a species (cladogenesis).
 
-        Run periodically, BEFORE refresh_centroids, so any sub-cluster it seeds
-        as a candidate is excluded from the parent species' refreshed centroid.
-        For each species, its living members (excluding creatures already in a
-        candidate) are clustered in compatibility space; if they fall into 2+
-        mutually reproductively-isolated sub-clusters, the cluster closest to the
-        frozen type keeps the species name and each other cluster seeds (or
-        extends) a candidate.  Promotion/aging/relabelling then flow through the
-        existing two-stage gate (promote_candidates).
+        Must run **before** ``refresh_centroids`` so any sub-cluster seeded as
+        a candidate is excluded from the parent's refreshed centroid.
 
-        This is what catches allopatric/sympatric divergence that a single
-        species centroid masks: two habitat-adapted populations sharing one label
-        sit symmetrically around their midpoint centroid, so newborns never
-        individually fall below threshold — but their members form two clusters,
-        which this detects directly.
+        For each species with at least ``2 * min_species_population``
+        non-candidate members, the members are clustered in compatibility space
+        via spherical k-means.  If two or more mutually reproductively-isolated
+        sub-clusters are found (all pairwise centroid cosines below
+        ``split_isolation_threshold``), the cluster nearest the frozen type
+        keeps the species name and each other cluster seeds or extends a
+        candidate.
+
+        This catches allopatric/sympatric divergence that a single shared
+        centroid masks: two habitat-adapted populations sit symmetrically
+        around their midpoint centroid so newborns never individually fall
+        below the assignment threshold — but their members form two distinct
+        clusters, which this detector finds directly.
+
+        Parameters
+        ----------
+        alive_creatures : list[Creature]
+            All living creatures across all habitats.
+        current_week : int
+            The current simulation week, recorded as the ``detected_week``
+            on any newly created candidates.
         """
         candidate_member_ids: set[str] = set()
         for cand in self._candidates.values():
@@ -487,25 +523,39 @@ class SpeciesRegistry:
         pending_only: bool = False,
     ) -> list[dict]:
         """
-        Detect a lineage that has TRANSFORMED over time without splitting
-        (anagenesis / chronospecies).
+        Detect a lineage that has transformed in place without splitting.
 
-        For each living species — skipping any with an active split candidate
-        this cycle — compare its living phenotype centroid to its frozen type
-        phenotype.  If cosine has fallen below anagenesis_threshold, mint a
-        descendant species and respeciate living members by closest phenotype:
-        members nearer the new centroid join the descendant; members still nearer
-        the type keep the old name (the name follows the type).  If every member
-        moves, the ancestor simply has no living members (pure anagenesis /
-        lineage replacement); dead ancestors keep their labels — the log is the
-        fossil record.
+        Anagenesis (chronospecies) is visible on the **phenotype** axis —
+        the 32-trait raw OWA vector — not the compatibility axis.  A lineage
+        that drifts far from its frozen type phenotype (centred cosine below
+        ``anagenesis_threshold``) and stays there for ``anagenesis_weeks``
+        is respeciated: members are partitioned by closest phenotype between
+        the new centroid and the old type; the name follows the type.
 
-        pending_only : if True, only process species already in
-            _anagenesis_pending (rebound-check or fire); skip species not yet
-            tracked.  Used for the weekly between-cadence poll so the persistence
-            clock is week-precise rather than rounded to respeciate_every.
+        Species with an active split candidate are skipped (cladogenesis
+        takes priority); species with fewer than ``min_species_population``
+        living members are skipped.
 
-        Returns the list of anagenesis events created this call.
+        Parameters
+        ----------
+        alive_creatures : list[Creature]
+            All living creatures across all habitats.
+        current_week : int
+            The current simulation week, used to advance the persistence
+            clock and to timestamp any new events.
+        pending_only : bool, optional
+            If ``True``, only process species already in
+            ``_anagenesis_pending`` (rebound-check or fire).  Used for the
+            weekly between-cadence poll so the persistence clock is
+            week-precise.  Default ``False`` (full scan).
+
+        Returns
+        -------
+        list[dict]
+            Anagenesis events created this call.  Each dict has keys
+            ``new_species``, ``parent_species``, ``creature_id``, ``week``,
+            and ``event_type: "anagenesis"``.  Also appended to
+            ``self.speciation_events``.
         """
         split_parents = {cand["parent_species"] for cand in self._candidates.values()}
 
@@ -609,10 +659,21 @@ class SpeciesRegistry:
 
     def similarity_to_all_progenitors(self, creature: "Creature") -> dict[str, float]:
         """
-        Full-genome cosine similarity between *creature* and every species'
-        frozen TYPE genome.  Inspection/diagnostics helper; this is the
-        full-genome axis the future anagenesis detector will build on, not the
-        compatibility signal used for C2 detection.
+        Full-genome cosine similarity between *creature* and every species' frozen type.
+
+        Diagnostics helper; uses the full 500-dim genome, not the 245-dim
+        compatibility subset used for mating and centroid detection.
+
+        Parameters
+        ----------
+        creature : Creature
+            The individual to compare against all registered progenitor genomes.
+
+        Returns
+        -------
+        dict[str, float]
+            Mapping of species name → cosine similarity in [-1, 1].
+            Empty dict if no species are registered.
         """
         if self._progenitor_matrix is None:
             return {}
@@ -627,12 +688,39 @@ class SpeciesRegistry:
         return dict(zip(self._species_order, sims.tolist(), strict=False))
 
     def progenitor_genes(self, species_name: str) -> np.ndarray | None:
-        """Return a copy of the frozen TYPE genome for the named species."""
+        """
+        Return a copy of the frozen TYPE genome for the named species.
+
+        Parameters
+        ----------
+        species_name : str
+            Name of a registered species (living or extinct).
+
+        Returns
+        -------
+        np.ndarray or None
+            A copy of the 500-dim founding genome, or ``None`` if the species
+            is not found.
+        """
         genes = self._registry.get(species_name)
         return genes.copy() if genes is not None else None
 
     def centroid(self, species_name: str) -> np.ndarray | None:
-        """Return a copy of the living compatibility centroid, or None if extinct."""
+        """
+        Return a copy of the living compatibility centroid for *species_name*.
+
+        Parameters
+        ----------
+        species_name : str
+            Name of a registered species.
+
+        Returns
+        -------
+        np.ndarray or None
+            The 245-dim compatibility centroid as of the last
+            ``refresh_centroids()`` call, or ``None`` if the species has no
+            living members (extinct or centroid not yet computed).
+        """
         c = self._centroids.get(species_name)
         return c.copy() if c is not None else None
 

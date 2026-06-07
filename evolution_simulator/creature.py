@@ -1,3 +1,39 @@
+"""
+Core creature model for the evolution simulator.
+
+A ``Creature`` is a simulated organism whose entire biology is encoded in a
+500-dimensional float gene vector.  Every phenotypic trait is computed from a
+polygenic subset of that vector using Ordered Weighted Averaging (see
+``Creature._compute_trait``).  Reproduction is Mendelian with per-locus
+mutation; speciation emerges from drift in the ``compatibility_genes`` subset.
+
+Key public API
+--------------
+``Creature(genes, parents)``
+    Construct a new individual.  If genes are omitted, they are drawn from
+    N(0, 1) — suitable for founding populations.
+
+``creature.reproduce(other, rng) -> list[Creature]``
+    Attempt to produce a litter.  Returns [] if the pair is incompatible or
+    the conception draw fails.
+
+``creature.is_compatible(other) -> (bool, float, str)``
+    Full mating check: opposite sex, reproductive age, not pregnant, cosine
+    similarity above the compatibility floor.
+
+``creature.compatibility_score(other) -> float``
+    Raw cosine similarity of the 245-locus compatibility gene subset.
+
+``creature.simulate_week() -> dict``
+    Advance age, pregnancy timers, and survival; return a week-log dict.
+    Energy and hydration are set by the ``Habitat`` before this is called.
+
+Module-level utilities
+----------------------
+``reset_creature_ids(start)``
+    Reset the monotonic ID counter; called once at simulation setup.
+"""
+
 import itertools
 
 import numpy as np
@@ -18,7 +54,18 @@ def _next_creature_id() -> str:
 
 
 def reset_creature_ids(start: int = 1) -> None:
-    """Reset the monotonic creature-ID counter (called once per run setup)."""
+    """
+    Reset the monotonic creature-ID counter.
+
+    Called once at simulation setup so creature IDs are deterministic and
+    byte-identical across runs that share the same config and seed.
+
+    Parameters
+    ----------
+    start : int, optional
+        First integer value the counter will produce.  Default 1, so the
+        first ID is ``c0000000001``.
+    """
     global _id_counter
     _id_counter = itertools.count(start)
 
@@ -55,7 +102,9 @@ class Creature:
     parents : list[Creature], optional
         Direct parent Creature objects.  Pass [] for a founding individual.
     creature_id : str, optional
-        Explicit ID.  Auto-generated UUID4 if not provided.
+        Explicit ID string.  Auto-assigned from a monotonic counter if not
+        provided; call ``reset_creature_ids()`` at simulation setup to
+        restart the counter.
     """
 
     # Class-level attribute so species subclasses can override the mapping
@@ -138,17 +187,27 @@ class Creature:
 
     def _compute_trait(self, name: str) -> float:
         """
-        Compute the normalized [0, 1] value for a named trait via OWA.
+        Compute the normalised [0, 1] value for a named trait via OWA.
 
         Gene values at contributing loci are sorted descending and combined
         with exponentially decaying weights (OWA_ALPHA controls the decay),
         then passed through a sigmoid.  Higher-valued loci receive more weight,
         so beneficial mutations are immediately visible to selection.
 
-        Results are memoised in _trait_cache: since genes are immutable after
-        birth, each trait value is computed at most once per creature lifetime.
+        Results are memoised in ``_trait_cache``: since genes are immutable
+        after birth, each trait value is computed at most once per creature
+        lifetime.  Subclasses can tune OWA_ALPHA or override
+        TRAIT_GENE_INDICES[name].
 
-        Subclasses can tune OWA_ALPHA or override TRAIT_GENE_INDICES[name].
+        Parameters
+        ----------
+        name : str
+            Trait name; must be a key in ``TRAIT_GENE_INDICES``.
+
+        Returns
+        -------
+        float
+            Normalised sigmoid value in [0, 1].
         """
         cached = self._trait_cache.get(name)
         if cached is not None:
@@ -159,7 +218,19 @@ class Creature:
         return result
 
     def trait_indices(self, name: str) -> list[int]:
-        """Return the gene indices that contribute to the named trait."""
+        """
+        Return the gene loci that contribute to the named trait.
+
+        Parameters
+        ----------
+        name : str
+            Trait name; must be a key in ``TRAIT_GENE_INDICES``.
+
+        Returns
+        -------
+        list[int]
+            Indices into the 500-dimensional gene vector for this trait.
+        """
         return self.TRAIT_GENE_INDICES[name]
 
     # ------------------------------------------------------------------
@@ -398,14 +469,25 @@ class Creature:
         """
         Cosine similarity of the two creatures' compatibility gene subsets.
 
-        Returns a value in [-1, 1]:
-          -1  completely anti-correlated gene vectors (maximally incompatible)
-           0  orthogonal (unrelated, typical for random founding individuals)
-          +1  identical gene vectors (perfect genetic match)
+        Operates on the 245-locus ``compatibility_genes`` subspace, which
+        models a major-histocompatibility-complex-like signal.
 
-        Creatures from a shared lineage cluster near +1; populations that have
-        diverged over many generations drift toward 0 or below, producing
-        reproductive isolation (speciation).
+        Parameters
+        ----------
+        other : Creature
+            The individual to compare compatibility with.
+
+        Returns
+        -------
+        float
+            Cosine similarity in [-1, 1]:
+              -1  completely anti-correlated (maximally incompatible)
+               0  orthogonal (unrelated; typical for random founders)
+              +1  identical gene vectors (perfect genetic match)
+
+            Creatures from a shared lineage cluster near +1; diverged
+            populations drift toward 0 or below, producing reproductive
+            isolation (speciation).
         """
         indices = self.TRAIT_GENE_INDICES["compatibility_genes"]
         v1 = self.genes[indices]
@@ -417,14 +499,32 @@ class Creature:
 
     def is_compatible(self, other: "Creature") -> tuple[bool, float, str]:
         """
-        Full mating-compatibility check.
+        Full mating-compatibility check between this creature and *other*.
+
+        Tests in order: opposite sex, both sexually viable, female not already
+        pregnant, and compatibility score above the combined selectivity
+        threshold.  The threshold is ``COMPATIBILITY_FLOOR + 0.15 * mean
+        selectivity`` of the pair, capped so high-OWA selectivity values
+        cannot make same-species mating impossible.
+
+        Parameters
+        ----------
+        other : Creature
+            The candidate mate to check against.
 
         Returns
         -------
-        (compatible, score, reason)
-            compatible : bool   – whether mating can proceed
-            score      : float  – cosine similarity in [-1, 1]
-            reason     : str    – empty string if compatible, else why not
+        compatible : bool
+            ``True`` if all checks pass and mating can proceed.
+        score : float
+            Raw cosine similarity from ``compatibility_score()`` in [-1, 1].
+            Zero when the pair is rejected before the genetic check (e.g.
+            same sex).
+        reason : str
+            Empty string when compatible; otherwise a short token describing
+            the first failing check (``"same_sex"``, ``"self_not_viable"``,
+            ``"other_not_viable"``, ``"female_already_pregnant"``, or
+            ``"genetic_incompatibility (score=… < threshold=…)"``.
         """
         if self.sex == other.sex:
             return False, 0.0, "same_sex"
@@ -450,24 +550,30 @@ class Creature:
         Attempt to produce a litter with *other*.
 
         Litter size is a Poisson draw centred on the female's fecundity trait
-        (minimum 1 if the draw is zero), so each mating event is stochastic.
-        Each offspring receives an independent per-locus Mendelian draw from
-        the two parents, and each locus is mutated at the rate of whichever
-        parent contributed it — keeping both mutation rates under independent
-        selection pressure.
+        (minimum 1 if the draw is zero).  Each offspring receives an
+        independent per-locus Mendelian draw from the two parents, and each
+        locus is mutated at the rate of whichever parent contributed it,
+        keeping both mutation rates under independent selection pressure.
 
         Parameters
         ----------
+        other : Creature
+            The other parent.  One of the pair must be male and the other
+            female; the method resolves which is which internally.
         rng : np.random.Generator
-            The single simulation generator, threaded from SimulationRunner so
-            that all reproductive stochasticity comes from one explicit, seeded
-            stream (required — there is no global-RNG fallback in sim logic).
+            The single simulation generator threaded from ``SimulationRunner``.
+            All reproductive stochasticity — fertility draw, litter size,
+            parent-allele selection, mutation — comes from this stream.
+            Required; there is no global-RNG fallback in simulation logic.
 
-        Returns a (possibly empty) list of Creature objects.
-          - Empty list  → compatibility check failed; no mating occurred.
-          - Non-empty   → successful mating; the female is marked pregnant and
-                          the litter is stored in female._pending_offspring
-                          until gestation completes.
+        Returns
+        -------
+        list[Creature]
+            Empty if the compatibility check fails or the fertility draw
+            misses.  Non-empty on a successful conception: the female is
+            marked pregnant and the litter is stored in
+            ``female._pending_offspring`` until gestation completes, at which
+            point ``Habitat.simulate_week()`` collects and releases them.
         """
         compatible, _, _ = self.is_compatible(other)
         if not compatible:
@@ -516,22 +622,28 @@ class Creature:
         """
         Advance the creature's internal state by one week.
 
+        Checks starvation and dehydration (energy/hydration set externally by
+        ``Habitat`` before this call), increments age, tests for death from old
+        age, and advances the pregnancy timer.
+
         Parameters
         ----------
-        environment : Environment, optional
-            The environment the creature currently inhabits.  Reserved for
-            future integration: food and water availability will be computed
-            via dot products between self.genes and environment.vector.
+        environment : optional
+            Currently unused; reserved for a future refactor where resource
+            probabilities would be computed inside this method rather than by
+            the owning ``Habitat``.
 
         Returns
         -------
         dict
             Week log with keys:
-            - "creature_id"    : str
-            - "age"            : int  (post-increment)
-            - "is_alive"       : bool
-            - "cause_of_death" : str or None
-            - "events"         : list[str]
+
+            - ``"creature_id"``    : str
+            - ``"age"``            : int — post-increment value
+            - ``"is_alive"``       : bool
+            - ``"cause_of_death"`` : str or None — ``"starvation"``,
+              ``"dehydration"``, or ``"old_age"`` as applicable
+            - ``"events"``         : list[str] — e.g. ``["gave_birth"]``
         """
         if not self.is_alive:
             return self._week_log(["creature is already dead"])

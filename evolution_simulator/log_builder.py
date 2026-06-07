@@ -30,7 +30,16 @@ class StatsAccumulator:
         self.reset(start_week)
 
     def reset(self, start_week: int) -> None:
-        """Clear all counters and begin a fresh interval at ``start_week``."""
+        """
+        Clear all counters and begin a fresh accumulation interval.
+
+        Parameters
+        ----------
+        start_week : int
+            The first week of the new interval; stored as ``self.start_week``
+            and included in the ``weeks_covered`` field of the next
+            ``flush_interval()`` output.
+        """
         self.start_week: int = start_week
         self.deaths_by_cause: Counter = Counter()
         self.deaths_by_species: Counter = Counter()
@@ -45,10 +54,27 @@ class StatsAccumulator:
 
     def record_week(self, week: int, habitat_results: dict, migration_log: list) -> list[dict]:
         """
-        Accumulate one week of habitat results + migrations into the buffer.
+        Accumulate one week of habitat results and migrations into the buffer.
 
-        Returns the list of isolation-event dicts created this call, so the
-        caller can also append them to its all-time isolation log.
+        Parameters
+        ----------
+        week : int
+            The current simulation week number, stamped on any isolation events
+            created this call.
+        habitat_results : dict[str, dict]
+            Mapping of ``habitat_id → result`` as returned by
+            ``Habitat.simulate_week()``.  Deaths, births, mating events, and
+            isolation events are extracted from each result.
+        migration_log : list[dict]
+            List of migration event dicts (``creature_id``, ``from_habitat``,
+            ``to_habitat``) produced by ``SimulationRunner.step()``.
+
+        Returns
+        -------
+        list[dict]
+            Isolation-event dicts created this call (``week``,
+            ``from_habitat``, ``blocked_neighbor``), so the caller can also
+            append them to its all-time isolation log.
         """
         new_isolation_events: list[dict] = []
         for hab_id, result in habitat_results.items():
@@ -79,7 +105,22 @@ class StatsAccumulator:
         return new_isolation_events
 
     def build_interval_stats(self, end_week: int) -> dict:
-        """Assemble the ``interval_stats`` dict covering [start_week, end_week]."""
+        """
+        Assemble the ``interval_stats`` dict without resetting the buffer.
+
+        Parameters
+        ----------
+        end_week : int
+            The last week covered by this interval; stored alongside
+            ``self.start_week`` in the ``weeks_covered`` field.
+
+        Returns
+        -------
+        dict
+            Interval summary with top-level keys: ``weeks_covered``,
+            ``deaths``, ``births``, ``migrations``, ``mating``, and
+            ``isolation_events``.
+        """
         births_by_hab_species: dict = {}
         for (hid, sp), count in self.births_by_habitat_species.items():
             births_by_hab_species.setdefault(hid, {})[sp] = count
@@ -110,7 +151,21 @@ class StatsAccumulator:
         }
 
     def flush_interval(self, end_week: int) -> dict:
-        """Build the interval_stats dict, then reset to start at ``end_week + 1``."""
+        """
+        Build the interval_stats dict, then reset the buffer.
+
+        Parameters
+        ----------
+        end_week : int
+            The last week of the interval being closed; passed to
+            ``build_interval_stats()``.  The buffer is then reset so the
+            next interval starts at ``end_week + 1``.
+
+        Returns
+        -------
+        dict
+            The completed interval stats dict; see ``build_interval_stats()``.
+        """
         stats = self.build_interval_stats(end_week)
         self.reset(end_week + 1)
         return stats
