@@ -6,7 +6,80 @@ Cross-machine task tracking for active development items.
 
 ## Immediate / Next Session
 
+### KEY NEXT STEP — Multi-peak habitats as ecological niches (plan written, ready to implement)
+
+**Plan: `implementation_plan_multipeak.md` (repo root) — self-contained, start here.**
+This is the agreed direction for the "single-optimum gravity well" design question
+below. Decision: build **multi-peak habitats** so a habitat can be solved N
+different ways, each an ecological niche with its own emergent trait signature
+(e.g. "this lineage went large + low-fecundity because the strategy it locked onto
+is tied to size/fecundity loci"). Niche diversity is the primary goal; sympatric
+speciation becomes an opt-in downstream consequence (`niche_compat_overlap` knob),
+not the point.
+
+Core design (full reasoning in the plan):
+- N peaks per habitat = base vector with a `niche_fraction` of food/water loci
+  resampled as a centered simplex (anti-aligned across any N). Rule: N distinct
+  peaks needs `niche_fraction ≥ (N−1)/N`.
+- **Frequency dependence is the coexistence force**, not the geometry (cosine
+  valley caps at ~15% depth). Each peak is a limited resource pool
+  (`C_k = POPULATION_SUPPORT / n_peaks`); crowding a peak dilutes its payoff.
+  `scramble` (egalitarian) default, `contest` (intelligence-ranked) opt-in. This
+  introduces the first **interspecific competition** in the sim — a deliberate
+  break from the "food is unlimited" invariant, confined to `n_peaks > 1`.
+- `n_peaks = 1` (default) is byte-identical to today.
+
+**DO FIRST (open risk, §13 of the plan): the `POPULATION_SUPPORT` occupancy
+check.** Capacity-based frequency dependence is inert if habitats run well under
+their cap. Measure equilibrium occupancy ratio from an existing run before
+implementing §5; if slack, set `C_k` from observed equilibrium, not the nominal
+cap.
+
+Phase 2 / deferred (in the plan): generalist benefit via drawing from multiple
+resource pools (the right home for "exploit 2 peaks without being a pure
+generalist"), softened contest mode, cost-coupling for intelligence, the
+merge/re-coalescence check (synergistic with this).
+
+---
+
+### Reconsider the angular response function `(cos θ + 1)/2` (standalone — survives even if multi-peak Phase 2 is dropped)
+
+Currently resource probability is `P = (cos θ + 1)/2` — linear in `cos θ` and
+centered at 0.5 for orthogonal vectors. This is the first/simplest way to drive
+the geometric habitat↔creature identity; it does not have to be the final one. It
+is **forgiving near orthogonality** (an orthogonal creature still gets half
+credit), which has structural consequences: it caps how distinct multiple habitat
+peaks can be and how deep inter-peak valleys get, and it wastes most of its
+`[0,1]` range on configurations that never occur (random high-D vectors
+concentrate near orthogonal, cos std ≈ 1/√D).
+
+A sharper / more sensitive angular response would be a **new modeling lever**: per
+-habitat "sharpness" becomes a biome axis (forgiving generalist environment vs.
+harsh narrow-niche environment), peak count decouples from `niche_fraction`, and
+valley depth becomes tunable. Candidates (all keep the geometric identity —
+monotonic in `cos θ`, no sin/cross-product/explicit fitness):
+- **Exponent:** `P = ((cos θ + 1)/2) ** sharpness`, default `1.0` = exactly
+  current behavior. Minimal, backward-compatible.
+- **Sigmoid in cos:** `1/(1+exp(−k·(cos θ − c)))` — threshold `c` + steepness `k`.
+- **von Mises–Fisher:** `∝ exp(κ·cos θ)`, concentration `κ` (the principled
+  directional-statistics object).
+
+Constraints: this revisits a documented CLAUDE.md core invariant (reframe the
+wording, don't silently swap); it decouples cleanly from mating/compatibility
+geometry (leave `COMPATIBILITY_FLOOR` on raw cos); sharpening below cos=1 shifts
+mean P down so it pairs with per-habitat energy retuning.
+
+Full discussion lives in `implementation_plan_multipeak.md` §12 (first Phase 2
+bullet). Recorded here standalone because it is independently useful and
+foundational even if the multi-peak feature is never built.
+
+---
+
 ### High speciation rate — diagnosed + calibrated; next is a DESIGN decision, then the merge fix
+
+NOTE: The "big question" below is now ANSWERED — see the multi-peak plan above.
+We chose to make sustained sympatric divergence possible (multi-peak + frequency
+dependence). The merge check is still wanted as the symmetric churn fix (Phase 2).
 
 Full write-up: `reports/general_findings/speciation_churn_diagnosis.md` (corrected
 2026-06-04 with the calibration result). Short version below.
